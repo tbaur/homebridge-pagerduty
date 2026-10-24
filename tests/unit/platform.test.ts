@@ -43,7 +43,9 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.useRealTimers()
-  rmSync(dir, { recursive: true, force: true })
+  // Homebridge does not await shutdown, so a final state write can still be
+  // creating its temp file here on a slow runner.
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 })
 })
 
 function fakeApi(): FakeApi {
