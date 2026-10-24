@@ -1,7 +1,7 @@
 {
   "name": "homebridge-pagerduty",
   "displayName": "Homebridge PagerDuty",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Homebridge plugin that pages through PagerDuty: each alert is a HomeKit switch that triggers and resolves a PagerDuty alert, with severity levels, resolve timers, a maintenance switch, a delivery-fault sensor and a local signal store other plugins can raise alerts through",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
