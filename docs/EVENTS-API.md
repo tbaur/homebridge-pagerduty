@@ -2,7 +2,7 @@
 
 This plugin uses one PagerDuty interface: `POST /v2/enqueue` on the Events API v2. It sends `trigger` and `resolve`. It never calls the REST API and never reads PagerDuty state.
 
-Each fact below shapes something in the plugin, and the right-hand column says what.
+The table lists each PagerDuty behavior that the plugin depends on, and what the plugin does because of it.
 
 ## Facts and their consequences
 
@@ -17,9 +17,9 @@ Each fact below shapes something in the plugin, and the right-hand column says w
 | An alert takes the highest severity it has received. Incident urgency is raised to match and never lowered. | A severity raise is sent as another `trigger`. The plugin never sends a lower severity for an open alert. |
 | After an alert is resolved, a `trigger` with the same key opens a new alert. A `resolve` with no open alert is dropped. | Resolving a closed alert is harmless, which makes the resolve sweep after a lost state file safe. |
 | A `resolve` only applies if it arrives on the same `routing_key` as the trigger. Otherwise it is dropped. | Changing the integration key would orphan open alerts. The plugin detects the change, names the open alerts in a `warn`, and tells the user to resolve them in PagerDuty. |
-| While an incident is acknowledged, PagerDuty sends no notifications, even for new triggers. | The README says that a severity raise on an acknowledged incident pages no one. |
+| While an incident is acknowledged, PagerDuty sends no notifications, even for new triggers. | The [detailed documentation](README-DETAILED.md#what-the-plugin-does-not-track) says that a severity raise on an acknowledged incident pages no one. |
 | `202` means accepted and queued, not "incident created". `400` means invalid: do not retry. `429`, `5xx` and network errors should be retried, with a backoff of minutes for `429`. Rate limits are dynamic and per service. | See [Status handling](#status-handling). |
-| With dynamic notifications, `critical` and `error` are high urgency, and `warning` and `info` are low. | A level change inside one urgency band does not change who is notified. The README example pairs `warning` with `critical` for that reason. |
+| If the service uses alert severity to set urgency, `critical` and `error` are high urgency, and `warning` and `info` are low. | A change between two severities with the same urgency does not change who is notified. The [complete example](README-DETAILED.md#a-complete-example) pairs `warning` with `critical` for that reason. |
 | A PagerDuty maintenance window drops triggers on the service. It also drops resolves, so the incident stays open and keeps notifying. | This plugin's maintenance switch holds triggers and always sends resolves. The README tells users not to use PagerDuty maintenance windows on this service. |
 | Events sent to a deleted integration key, a disabled service or a service in maintenance still get a `2xx`. | The plugin cannot detect a revoked or deleted key. The README asks users to test once after setup, and `scripts/smoke.js` does the same from a terminal. |
 | Whether `429` carries `Retry-After` is not documented. | Honored when present, up to 15 minutes. Never depended on. |
@@ -68,6 +68,6 @@ Resolve:
 { "routing_key": "<routing key>", "event_action": "resolve", "dedup_key": "homebridge/freezer" }
 ```
 
-- `dedup_key` is `<source>/<alert id>` for an alert and `<source>/<plugin>/<signal>` for an unbound signal row. An alert id cannot contain `/`, so the two forms cannot collide.
+- `dedup_key` is `<source>/<alert id>` for an alert and `<source>/<plugin>/<signal>` for a signal row that is not tied to an alert. An alert id cannot contain `/`, so the two forms cannot collide.
 - `timestamp` is when the condition changed, not when the request was sent. A trigger delivered after an outage still shows the real start time.
 - A resolve always uses the `dedup_key` recorded when the alert was opened. Changing `source` while an alert is open therefore resolves the old key and triggers the new one.

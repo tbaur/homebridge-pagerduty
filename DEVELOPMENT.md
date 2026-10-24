@@ -16,11 +16,11 @@ flowchart LR
 ```
 
 - `src/state/` is the model. `desired.ts` computes what should be true, `reconcile.ts` compares it with what PagerDuty accepted and picks the next action, `mutations.ts` holds every change to saved state, and `store.ts` reads and writes the state file. `reconcile.ts` and `desired.ts` are pure: no timers, no I/O.
-- `src/delivery/` is the wire: event bodies, the HTTPS client, the sender with its backoff, and the delivery-health tracker.
+- `src/delivery/` sends events: event bodies, the HTTPS client, the sender with its backoff, and the delivery-health tracker.
 - `src/signals/` is the published signal store: the schema text and the SQLite reader.
-- `src/devices/` is HomeKit. `src/platform.ts` is the join. `src/diagnostics/` is the opt-in health heartbeat.
+- `src/devices/` holds the HomeKit accessories, and `src/platform.ts` connects them to the controller. `src/diagnostics/` is the opt-in health heartbeat.
 
-PagerDuty facts live in [docs/EVENTS-API.md](docs/EVENTS-API.md), and the signal store interface in [docs/SIGNALS.md](docs/SIGNALS.md), not here.
+PagerDuty facts live in [docs/EVENTS-API.md](docs/EVENTS-API.md), and the signal store interface in [docs/SIGNALS.md](docs/SIGNALS.md) and [docs/SIGNALS-AGENT.md](docs/SIGNALS-AGENT.md), not here.
 
 `dist/` is committed so a git install works. CI fails if it drifts from `src/`. Run `npm run build` and commit `dist/` with every source change. Do not add a `prepare` script: it dirties the tree on every `npm install`. `prepublishOnly` rebuilds before a publish.
 
@@ -39,7 +39,7 @@ Break one of these and someone does not get paged, gets paged for nothing, or lo
 - **Bad config disables the platform. It does not unregister anything.** The only thing that unregisters an accessory is removing its alert `id` from config.
 - **HomeKit writes never wait on PagerDuty.** A write updates state, persists, wakes the sender and returns.
 - **The plugin never sends a lower severity for an open alert.**
-- **The signal schema text is an interface.** `SIGNAL_SCHEMA_SQL`, `docs/SIGNALS.md` and `scripts/reference-writer.js` must match character for character, and a test checks all three. Changing it means raising `SIGNAL_SCHEMA_VERSION`.
+- **The signal schema text is an interface.** `SIGNAL_SCHEMA_SQL`, `docs/SIGNALS.md`, `docs/SIGNALS-AGENT.md` and `scripts/reference-writer.js` must match character for character, and tests check all of them. The module in `docs/SIGNALS-AGENT.md` is also compiled and run against the reader. Changing the schema means raising `SIGNAL_SCHEMA_VERSION`.
 
 ## Commands
 
@@ -81,5 +81,5 @@ Signal reader tests use real SQLite files in a temporary directory, including a 
 2. Add it to `config.schema.json` with the same range as the validator. `tests/unit/verified-plugin.test.ts` compares them. `required` must be an array of property names (draft-07), and array items carry no `default`.
 3. If it changes what is sent, it goes through `desired.ts` or `reconcile.ts`, with table-driven tests there.
 4. If it should appear in diagnostics, add it to `redactConfig` in `src/diagnostics/collector.ts`. A secret appears only as present or absent.
-5. Document it in the README table and in [docs/README-DETAILED.md](docs/README-DETAILED.md).
+5. Document it in the configuration reference in [docs/README-DETAILED.md](docs/README-DETAILED.md#full-configuration-reference).
 6. `npm run build` and commit `dist/`.

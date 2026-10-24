@@ -34,7 +34,7 @@ The Release PR is authored by `github-actions[bot]`, because `release.yml` passe
 
 - There is no CLI for this.
 - The approval does not stick. It is needed on every release, and again whenever release-please updates an open Release PR.
-- **Merging without approving turns the runs red.** They finalise as `failure` with zero jobs and no logs. That means nobody approved them, not that anything broke.
+- **Merging without approving turns the runs red.** They finish as `failure` with zero jobs and no logs. That means nobody approved them, not that anything broke.
 
 ## Read the Release PR diff
 
@@ -51,7 +51,7 @@ A healthy Release PR changes exactly four files: `package.json`, `package-lock.j
 | `feat!:` / `fix!:` or a `BREAKING CHANGE:` footer | `feat!: drop Node 22` | major (1.0.0 → 2.0.0) |
 | `chore:`, `docs:`, `refactor:`, `test:`, `ci:` | `docs: fix typo` | no release |
 
-A `Release-As: X.Y.Z` footer on the squash commit forces that version. Use it to open the 1.0.0 line. After 1.0.0, `feat:` is a minor and a breaking change is a major. The `bump-patch-for-minor-pre-major` and `bump-minor-pre-major` flags in `release-please-config.json` only affect a 0.x line.
+A `Release-As: X.Y.Z` footer on the squash commit forces that version.
 
 Dependabot titles runtime bumps `fix:` and development bumps `chore:` (see `.github/dependabot.yml`), so a dependency users install cuts a patch release on its own while a test dependency waits for the next release to carry it.
 
@@ -64,9 +64,9 @@ Dependabot titles runtime bumps `fix:` and development bumps `chore:` (see `.git
 ## Notes
 
 - **Version source of truth** is `.release-please-manifest.json`. The `package.json` version belongs to release-please and is never hand-edited.
-- **Behaviour** is configured in `release-please-config.json`.
+- **release-please settings** are in `release-please-config.json`.
 - **A change to what is sent deserves a changelog note.** That changes who gets paged, and when. Say so in the PR description.
-- **A change to the signal schema is an interface change.** Writers in other plugins run that text. Say so in the PR, and raise `SIGNAL_SCHEMA_VERSION`.
+- **A change to the signal schema is an interface change.** Other plugins run that text. Say so in the PR, raise `SIGNAL_SCHEMA_VERSION`, and update `docs/SIGNALS.md`, `docs/SIGNALS-AGENT.md` and `scripts/reference-writer.js` together.
 - **Accessory-affecting releases** deserve a note too. Anything that changes an accessory's identity re-creates it in HomeKit and costs the user its room and automations. Prefer adopting, not re-keying, and say so in the PR when it cannot be avoided.
 
 ## Manual fallback

@@ -14,7 +14,8 @@ What the plugin does, and what it does not do.
 
 - ✅ Maintenance switch that holds triggers, always sends resolves, and turns itself off
 - ✅ Delivery sensor that opens when pages are not going out
-- ✅ Signal store that other plugins write to, limited by an allowlist
+- ✅ Signal store that other plugins write to, limited to the plugins listed in Signal Sources
+- ✅ A tested module and instructions that a plugin author or coding agent can use to add signal support
 - ✅ Dry-run mode that logs what would be sent
 - ✅ US and EU PagerDuty regions
 
@@ -26,7 +27,7 @@ What the plugin does, and what it does not do.
 - ✅ Backoff of minutes on rate limits, with `Retry-After` honored
 - ✅ Invalid alert entries held, not removed
 - ✅ Integration key changes detected, with the orphaned alerts named
-- ✅ A corrupt state file followed by a resolve sweep
+- ✅ A resolve for every alert that might be open after the state file is lost
 - ✅ Signal store read errors never treated as a clear
 
 ## Quality

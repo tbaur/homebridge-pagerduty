@@ -39,14 +39,14 @@ If a key leaks, delete the integration in PagerDuty, create a new one, and put t
 
 ## The signal store
 
-Other plugins can raise alerts by writing rows to `homebridge-pagerduty/signals.sqlite` in the Homebridge storage directory. [docs/SIGNALS.md](docs/SIGNALS.md) is the interface.
+Other plugins can raise alerts by writing rows to `homebridge-pagerduty/signals.sqlite` in the Homebridge storage directory. [docs/SIGNALS.md](docs/SIGNALS.md) is the interface, and [docs/SIGNALS-AGENT.md](docs/SIGNALS-AGENT.md) is the same interface written for coding agents.
 
-**The allowlist is not authentication.** `signals.sources` stops a well-behaved plugin from paging someone who never asked it to. It does not stop hostile code: any process that runs as the Homebridge user can write a row under any package name. Such a process can also read `config.json`, and the key in it, so the store adds no new exposure.
+**Signal Sources is not authentication.** The `signals.sources` list stops a well-behaved plugin from paging someone who never asked it to. It does not stop hostile code: any process that runs as the Homebridge user can write a row under any package name. Such a process can also read `config.json`, and the key in it, so the store adds no new exposure.
 
 What the plugin does to keep the store safe to read:
 
-- The allowlist is part of the SQL query, so rows from other writers cannot push allowed rows out of the read.
-- The schema's `CHECK` constraints limit `plugin` to package-name characters and cap every text column. Rows are validated again when read, in case a writer created the table differently.
+- The `signals.sources` list is part of the SQL query, so rows from unlisted plugins cannot push listed rows out of the read.
+- The schema's `CHECK` constraints limit `plugin` to package-name characters and cap every text column. Rows are validated again when read, in case another plugin created the table differently.
 - A read error never clears an alert, so a damaged or locked store cannot silently resolve a page.
 
 ## Best Practices for Users
