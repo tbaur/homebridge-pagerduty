@@ -35,8 +35,8 @@ Break one of these and someone does not get paged, gets paged for nothing, or lo
 - **A read error is never a clear.** That applies to the signal store and to the state file. When state has to start empty after corruption, every desired-closed key gets a `resolve`. Any other read error disables the platform.
 - **An invalid config entry is held, not removed.** Only an `id` that is absent from config is a removal.
 - **The routing key never reaches a log.** Not its value, its length or a prefix. The state file holds only its fingerprint. `src/utils/redact.ts` redacts by shape, so a PagerDuty error that echoes the key is still covered. Adding a log line near the key means re-reading that file first.
-- **Identity is alert id plus severity, never a name.** Adopt a cached accessory that matches; never replace it.
-- **Bad config disables the platform. It does not unregister anything.** The only thing that unregisters an accessory is removing its alert `id` from config.
+- **Identity is never a name.** An alert switch is its alert id plus severity, and a signal switch is its package name plus signal name. Adopt a cached accessory that matches; never replace it.
+- **Bad config disables the platform. It does not unregister anything.** A usable config unregisters an alert switch when its alert `id` is removed, and a signal switch when its box is unchecked, its signal is muted, or its plugin is no longer allowed.
 - **HomeKit writes never wait on PagerDuty.** A write updates state, persists, wakes the sender and returns.
 - **The plugin never sends a lower severity for an open alert.**
 - **The signal schema text is an interface.** `SIGNAL_SCHEMA_SQL`, `docs/SIGNALS.md`, `docs/SIGNALS-AGENT.md` and `scripts/reference-writer.js` must match character for character, and tests check all of them. The module in `docs/SIGNALS-AGENT.md` is also compiled and run against the reader. Changing the schema means raising `SIGNAL_SCHEMA_VERSION`.

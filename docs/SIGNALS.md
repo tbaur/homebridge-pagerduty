@@ -59,7 +59,7 @@ A signal that an allowed plugin starts writing after you saved the settings page
 A signal switch shows the signal in the Home app, and lets you test it.
 
 - The switch is on while the signal is active, and turns off when it clears.
-- Turning the switch on by hand pages with the signal's settings. Turning it off resolves the alert.
+- Turning the switch on by hand pages with the signal's settings. Turning it off resolves the alert. If the plugin has not written the signal yet and its severity is left to the plugin, a page by hand is sent as `critical`.
 - Whichever changed last wins. A person can flip the switch, and it stays that way until the plugin next changes the signal.
 
 ### What allowing a plugin protects against
@@ -116,7 +116,7 @@ Do not change it. `CREATE TABLE IF NOT EXISTS` lets the first process that runs 
 | `signal` | Your name for the condition, such as `sump-high`. Lowercase letters, digits, dot, underscore and hyphen, up to 64 characters. |
 | `active` | `1` while the condition is present. `0` once it has cleared. |
 | `severity` | `info`, `warning`, `error` or `critical`, in lowercase. If the PagerDuty service uses alert severity to set urgency, `critical` and `error` are high urgency, and `warning` and `info` are low. |
-| `summary` | The alert title in PagerDuty, 1 to 1024 characters. Users also see it as the starting value of their PagerDuty Message setting, so write text that still reads well if it is saved as a fixed message. |
+| `summary` | The alert title in PagerDuty, 1 to 1024 characters, with no control characters such as newlines. A row with one is ignored. Users also see it as the starting value of their PagerDuty Message setting, so write text that still reads well if it is saved as a fixed message. |
 | `updated_at` | The time of this write, in Unix milliseconds. PagerDuty shows it as the time that the condition changed. |
 
 The `CHECK` constraints reject a bad value at the moment you write it. The error appears in your plugin, close to the bug.

@@ -445,7 +445,7 @@ class AlertController {
         for (const entry of result.catalog) {
             if (!this.allowed.includes(entry.plugin) && !this.knownForeignWriters.has(entry.plugin)) {
                 this.knownForeignWriters.add(entry.plugin);
-                this.log.info(`signal store: ${entry.plugin} writes signals; allow it under Plugin Signals to page for it`);
+                this.log.info(`signal store: ${(0, redact_1.forLog)(entry.plugin)} writes signals; allow it under Plugin Signals to page for it`);
             }
         }
         if (result.invalidRows > 0) {

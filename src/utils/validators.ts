@@ -22,8 +22,9 @@
  */
 
 import { requestedSignalSwitches, signalSwitches } from '../signals/config'
-import { defaultSignalSwitchName, isValidSignalName, pluginConfigKey, pluginFromConfigKey } from '../signals/schema'
+import { defaultSignalSwitchName, isValidSignalName, pluginConfigKey, pluginFromConfigKey, signalRefKey } from '../signals/schema'
 import {
+  CONTROL_CHARACTERS,
   DEFAULT_DELIVERY_SENSOR_NAME,
   DEFAULT_MAINTENANCE_MAX_MINUTES,
   DEFAULT_MAINTENANCE_NAME,
@@ -77,7 +78,7 @@ export const ROUTING_KEY_PATTERN = /^[A-Za-z0-9]{32}$/
 export const SOURCE_PATTERN = /^[A-Za-z0-9._-]{1,32}$/
 export const ALERT_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/
 
-const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/
+const MAX_LISTED_SKIPPED_SWITCHES = 5
 
 type AlertOutcome =
   | { kind: 'ok'; alert: ResolvedAlert }
@@ -203,7 +204,9 @@ function validateSignalPlugins(value: unknown, warnings: string[]): ResolvedSign
   const plugins: ResolvedSignalPlugin[] = []
   for (const [key, entry] of Object.entries(value)) {
     const plugin = pluginFromConfigKey(key)
-    if (plugin === undefined || !isPlainObject(entry)) {
+    if (key === 'sources' && Array.isArray(entry)) {
+      warnings.push('signals.sources is no longer used; allow each plugin under Plugin Signals instead')
+    } else if (plugin === undefined || !isPlainObject(entry)) {
       warnings.push(`signals: ${forLog(key)} is not a package name with settings; skipped`)
     } else if (plugins.some((existing) => existing.plugin === plugin)) {
       warnings.push(`signals: ${plugin} appears twice; the second entry is skipped`)
@@ -342,6 +345,9 @@ function validateAlert(entry: unknown, index: number, warnings: string[]): Alert
   const summary = validateText({ value: alert.summary, field: 'summary', max: MAX_SUMMARY_LENGTH, problems })
   const levels = validateLevels(alert.levels, name ?? id, problems)
   const resolveAfterMinutes = validateMinutes(alert.resolveAfterMinutes, problems)
+  if ('signal' in alert) {
+    warnings.push(`alert ${id}: signal is no longer used, so its switch no longer follows a signal. If the switch is on, turn it off, or its PagerDuty alert stays open`)
+  }
   if (name === undefined || summary === undefined || levels === undefined || problems.length > 0) {
     warnings.push(`alert ${id} is held until fixed (nothing is sent or removed): ${problems.join('; ')}`)
     return { kind: 'held', id }
@@ -544,9 +550,11 @@ export function resolveAccessories(config: ResolvedConfig, warnings?: string[]):
 
 /** A switch for each signal that asks for one, from allowed plugins only, up to the cap. */
 function resolveSignalSwitches(config: ResolvedConfig, warnings?: string[]): ResolvedAccessory[] {
-  const skipped = requestedSignalSwitches(config).length - MAX_SIGNAL_SWITCHES
-  if (skipped > 0) {
-    warnings?.push(`at most ${MAX_SIGNAL_SWITCHES} signal switches are created; ${skipped} skipped`)
+  const skipped = requestedSignalSwitches(config).slice(MAX_SIGNAL_SWITCHES)
+  if (skipped.length > 0) {
+    const names = skipped.slice(0, MAX_LISTED_SKIPPED_SWITCHES).map(signalRefKey).join(', ')
+    const rest = skipped.length - MAX_LISTED_SKIPPED_SWITCHES
+    warnings?.push(`at most ${MAX_SIGNAL_SWITCHES} signal switches are created; skipped ${names}${rest > 0 ? ` and ${rest} more` : ''}`)
   }
   return signalSwitches(config).map((signal) => ({
     kind: 'signal',

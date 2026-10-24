@@ -139,6 +139,7 @@ function validateCatalogEntry(raw) {
         ? { plugin, signal, summary }
         : undefined;
 }
+/** Control characters are rejected because the text is sent on to PagerDuty and may be logged. */
 function isValidSummary(value) {
-    return typeof value === 'string' && value.length >= 1 && value.length <= settings_1.MAX_SUMMARY_LENGTH;
+    return typeof value === 'string' && value.length >= 1 && value.length <= settings_1.MAX_SUMMARY_LENGTH && !settings_1.CONTROL_CHARACTERS.test(value);
 }

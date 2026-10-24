@@ -15,8 +15,10 @@
  *
  * **What happens when configuration is unusable.** The platform disables
  * itself and leaves cached accessories registered, so HomeKit shows No
- * Response instead of losing the rooms built on them. The only thing that
- * unregisters an accessory is removing its alert `id` from config.
+ * Response instead of losing the rooms built on them. Only a usable config
+ * unregisters anything: an alert switch when its alert `id` is removed, and a
+ * signal switch when its box is unchecked, its signal is muted, or its plugin
+ * is no longer allowed.
  */
 import type { API, DynamicPlatformPlugin, Logging, PlatformAccessory, PlatformConfig } from 'homebridge';
 import { type AccessoryHost } from './devices';

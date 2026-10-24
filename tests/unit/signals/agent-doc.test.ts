@@ -64,14 +64,14 @@ describe('docs/SIGNALS-AGENT.md', () => {
     expect(/const SCHEMA = `([\s\S]*?)`/.exec(MODULE_SOURCE)?.[1]).toBe(SIGNAL_SCHEMA_SQL)
   })
 
-  it('has a module that compiles under strict settings and writes rows this plugin reads', () => {
+  it('has a module that compiles under strict settings and writes rows this plugin reads, even from text with a newline', () => {
     const { PagerDutySignals } = compileModule()
     const warnings: string[] = []
     const storagePath = join(dir, 'storage')
     const signals = new PagerDutySignals({ plugin: 'homebridge-example', storagePath, log: { warn: (message) => warnings.push(message) } })
 
     signals.write('sump-high', { active: true, severity: 'error', summary: 'Sump water level is high' })
-    signals.write('hub-offline', { active: false, severity: 'warning', summary: 'Hub is offline' })
+    signals.write('hub-offline', { active: false, severity: 'warning', summary: 'Hub is\noffline' })
     signals.close()
 
     const path = join(storagePath, 'homebridge-pagerduty', 'signals.sqlite')

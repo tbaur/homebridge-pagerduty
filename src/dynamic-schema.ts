@@ -21,6 +21,7 @@ import { join } from 'node:path'
 
 import { defaultSignalSwitchName, pluginConfigKey } from './signals/schema'
 import {
+  CONTROL_CHARACTERS,
   DYNAMIC_SCHEMA_FILE_NAME,
   MAX_NAME_LENGTH,
   MAX_SIGNAL_PLUGINS,
@@ -35,8 +36,6 @@ import { describeError } from './utils/errors'
 
 /** Title of the layout fieldset this file fills. A test asserts the static schema has it. */
 export const PLUGIN_SIGNALS_TITLE = 'Plugin Signals'
-
-const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/
 
 /** Bootstrap classes that Config UI X loads. A box per plugin and a rule per signal show what belongs to what. */
 const PLUGIN_FIELDSET_CLASS = 'border rounded px-3 pt-3 pb-0 mb-3'

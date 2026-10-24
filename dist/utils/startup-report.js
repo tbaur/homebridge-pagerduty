@@ -40,7 +40,7 @@ function formatStartupReport(input) {
     }
     for (const accessory of accessories) {
         if (accessory.kind === 'signal' && accessory.signal !== undefined) {
-            lines.push(`Signal switch: ${nameOf(accessory, changes)} for ${accessory.signal.plugin}/${accessory.signal.signal}`);
+            lines.push(`Signal switch: ${nameOf(accessory, changes)} for ${(0, redact_1.forLog)(`${accessory.signal.plugin}/${accessory.signal.signal}`)}`);
         }
         else if (accessory.kind === 'maintenance') {
             lines.push(`Maintenance switch: ${nameOf(accessory, changes)}; turns off after ${config.maintenance.maxMinutes} min`);
@@ -64,7 +64,9 @@ function platformLine({ config, pluginVersion }) {
 function signalsByPlugin(catalog, config) {
     const grouped = new Map((0, config_1.allowedPlugins)(config).map((plugin) => [plugin, []]));
     for (const entry of catalog) {
-        grouped.set(entry.plugin, [...grouped.get(entry.plugin) ?? [], entry.signal]);
+        const signals = grouped.get(entry.plugin) ?? [];
+        signals.push(entry.signal);
+        grouped.set(entry.plugin, signals);
     }
     return new Map([...grouped].sort(([a], [b]) => a.localeCompare(b)));
 }
@@ -80,7 +82,7 @@ function signalLine(plugin, written, config) {
             parts.push(`muted: ${listSignals(muted)}`);
         }
     }
-    return `Signals from ${plugin}: ${parts.join('; ')}`;
+    return `Signals from ${(0, redact_1.forLog)(plugin)}: ${parts.join('; ')}`;
 }
 function listSignals(names) {
     const listed = names.slice(0, MAX_LISTED_SIGNALS).map(redact_1.forLog).join(', ');

@@ -247,6 +247,13 @@ describe('validateConfig: plugin signals', () => {
     ])
   })
 
+  it('says signals.sources from 1.x is no longer used, instead of calling it a bad package name', () => {
+    const result = validateConfig(base({ signals: { sources: ['homebridge-example'] } }))
+
+    expect(result.config?.signalPlugins).toEqual([])
+    expect(result.warnings).toEqual(['signals.sources is no longer used; allow each plugin under Plugin Signals instead'])
+  })
+
   it('warns about a signals value that is not an object, and a signals list that is not one either', () => {
     expect(validateConfig(base({ signals: ['homebridge-example'] })).warnings).toEqual(['signals is not an object; no plugin may page'])
     expect(validateConfig(base({ signals: { 'homebridge-example': { allow: true, signals: [] } } })).warnings)
@@ -352,9 +359,13 @@ describe('validateConfig: alerts', () => {
     expect(result.warnings.join('\n')).toContain('alert leak is held until fixed')
   })
 
-  it('ignores the signal field that 1.x used to bind an alert', () => {
-    expect(ok(base({ alerts: [{ id: 'a', name: 'A', summary: 's', levels: [{ severity: 'info' }], signal: 'homebridge-example/x' }] })).alerts[0])
-      .not.toHaveProperty('signal')
+  it('ignores the signal field that 1.x used to bind an alert, and says the switch may need turning off', () => {
+    const result = validateConfig(base({ alerts: [{ id: 'a', name: 'A', summary: 's', levels: [{ severity: 'info' }], signal: 'homebridge-example/x' }] }))
+
+    expect(result.config?.alerts[0]).not.toHaveProperty('signal')
+    expect(result.warnings).toEqual([
+      'alert a: signal is no longer used, so its switch no longer follows a signal. If the switch is on, turn it off, or its PagerDuty alert stays open',
+    ])
   })
 })
 
@@ -454,6 +465,15 @@ describe('resolveAccessories', () => {
     const accessories = resolveAccessories(resolvedConfig({ signalPlugins: [allowedPlugin('homebridge-example', signals)] }), warnings)
 
     expect(accessories.filter((entry) => entry.kind === 'signal')).toHaveLength(20)
-    expect(warnings).toEqual(['at most 20 signal switches are created; 2 skipped'])
+    expect(warnings).toEqual(['at most 20 signal switches are created; skipped homebridge-example/s20, homebridge-example/s21'])
+  })
+
+  it('names at most five skipped signal switches', () => {
+    const signals = Array.from({ length: 27 }, (_unused, index) => signal({ signal: `s${index}`, switch: true }))
+    const warnings: string[] = []
+
+    resolveAccessories(resolvedConfig({ signalPlugins: [allowedPlugin('homebridge-example', signals)] }), warnings)
+
+    expect(warnings[0]).toMatch(/skipped homebridge-example\/s20, .*homebridge-example\/s24 and 2 more$/)
   })
 })

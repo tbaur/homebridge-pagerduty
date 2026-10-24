@@ -27,7 +27,6 @@ const atomic_file_1 = require("./utils/atomic-file");
 const errors_1 = require("./utils/errors");
 /** Title of the layout fieldset this file fills. A test asserts the static schema has it. */
 exports.PLUGIN_SIGNALS_TITLE = 'Plugin Signals';
-const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
 /** Bootstrap classes that Config UI X loads. A box per plugin and a rule per signal show what belongs to what. */
 const PLUGIN_FIELDSET_CLASS = 'border rounded px-3 pt-3 pb-0 mb-3';
 const SIGNAL_FIELDSET_CLASS = 'border-start border-2 ps-3 mb-2';
@@ -82,7 +81,7 @@ function compareEntries(a, b) {
 /** A plugin's text as a default value, or undefined when it would not pass validation as a title. */
 function cleanDefault(summary) {
     const text = summary.trim();
-    return text.length > 0 && text.length <= settings_1.MAX_SUMMARY_LENGTH && !CONTROL_CHARACTERS.test(text) ? text : undefined;
+    return text.length > 0 && text.length <= settings_1.MAX_SUMMARY_LENGTH && !settings_1.CONTROL_CHARACTERS.test(text) ? text : undefined;
 }
 function pluginSchema(entry) {
     return {

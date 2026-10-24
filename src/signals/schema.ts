@@ -13,7 +13,7 @@
  * interface change: raise {@link SIGNAL_SCHEMA_VERSION} and say why.
  */
 
-import { MAX_SUMMARY_LENGTH, PLUGIN_NAME } from '../settings'
+import { CONTROL_CHARACTERS, MAX_SUMMARY_LENGTH, PLUGIN_NAME } from '../settings'
 import type { CatalogEntry, SignalRef, SignalRow } from '../types'
 import { isSeverity } from '../types'
 
@@ -143,6 +143,7 @@ export function validateCatalogEntry(raw: Record<string, unknown>): CatalogEntry
     : undefined
 }
 
+/** Control characters are rejected because the text is sent on to PagerDuty and may be logged. */
 function isValidSummary(value: unknown): value is string {
-  return typeof value === 'string' && value.length >= 1 && value.length <= MAX_SUMMARY_LENGTH
+  return typeof value === 'string' && value.length >= 1 && value.length <= MAX_SUMMARY_LENGTH && !CONTROL_CHARACTERS.test(value)
 }

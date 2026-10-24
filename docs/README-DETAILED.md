@@ -246,7 +246,7 @@ A bad entry is skipped or set back to its default, with a `warn`. It never stops
 
 ## Accessory identity
 
-A switch's identity is its alert `id` and its severity. A signal switch's identity is the plugin's package name and the signal name. The maintenance switch and the delivery sensor each have a fixed identity, whatever they are named. A display name never enters identity, so renaming keeps the room and the automations. The startup report notes each rename, for example `Alert switch: leak "Water leak detected" (critical; renamed Water Leak to Leak)`.
+A switch's identity is its alert `id` and its severity. A signal switch's identity is the plugin's package name and the signal name. The maintenance switch and the delivery sensor each have a fixed identity, whatever they are named. A display name never enters identity, so renaming keeps the room and the automations. The startup report notes each rename, for example `Alert switch: leak "Water leak detected" (critical; renamed Water Leak Critical to Leak Critical)`.
 
 Cached accessories are adopted at startup, never recreated. Only removing an alert's `id` from the config removes its switches. A signal switch is removed when its box is unchecked, its signal is muted, or its plugin is no longer allowed.
 
@@ -284,6 +284,10 @@ Only one `PagerDuty` platform is supported per Homebridge. A second block in the
 | `signal store unavailable (...); keeping the last rows read` | warn | A read error. Nothing is cleared |
 | `signal store: homebridge-example writes signals; allow it under Plugin Signals to page for it` | info | A plugin writes signals but is not allowed. Allow it to let it page |
 | `could not update the settings screen (...); Plugin Signals may be out of date` | warn | The settings screen file could not be written. Paging is not affected |
+| `signals.sources is no longer used; allow each plugin under Plugin Signals instead` | warn | A setting from version 1. Check **Allow this plugin to page** for each plugin instead |
+| `alert sump: signal is no longer used, so its switch no longer follows a signal. If the switch is on, turn it off, or its PagerDuty alert stays open` | warn | A **Follow Signal** setting from version 1. Use the signal's own settings under Plugin Signals instead |
+| `alert leak: level names are no longer used; each switch is named Leak plus its severity` | warn | A level `name` from version 1. Rename the switch with **Accessory Prefix** |
+| `at most 20 signal switches are created; skipped ...` | warn | More than 20 signals have Create HomeKit Switch checked. The named ones get no switch but still page |
 | `tightened /path/to/homebridge-pagerduty/signals.sqlite-wal to owner-only` | info | A store file had a looser mode |
 
 Names and values that come from config or from other plugins are escaped and length-capped before they reach the log.

@@ -209,6 +209,19 @@ describe('applyRows', () => {
 
     expect(isSignalSwitchOn(state, 'homebridge-example/door')).toBe(true)
   })
+
+  it('keeps a person\'s later switch write when an older row change is read after it', () => {
+    const switches = new Set(['homebridge-example/door'])
+    const state = emptyState()
+    applyRows(state, { rows: [row()], complete: true, allowed: ALLOWED, switches, now: 1_000 })
+    applySignalSwitchWrite(state, 'homebridge-example/door', { on: false, at: 1_500 })
+
+    const result = applyRows(state, { rows: [row({ severity: 'critical', updatedAt: 1_200 })], complete: true, allowed: ALLOWED, switches, now: 2_000 })
+
+    expect(result.changed).toEqual(['homebridge-example/door'])
+    expect(state.rowsSeen['homebridge-example/door']!.severity).toBe('critical')
+    expect(state.switches['homebridge-example/door']).toEqual({ on: false, changedAt: 1_500 })
+  })
 })
 
 describe('applySignalSwitchWrite', () => {

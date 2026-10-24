@@ -31,7 +31,7 @@ The examples use `homebridge-example`. Use the plugin's real package name from i
 2. **Choose the signals.** Report only conditions that need a person, such as a leak, a device that went offline, or a failed backup. For each one, choose:
    - a name: lowercase letters, digits, dot, underscore and hyphen, up to 64 characters, such as `hub-offline`;
    - a severity: `info`, `warning`, `error` or `critical`;
-   - a summary that a person on call understands without context, such as `Sump water level is high`. 1 to 1024 characters.
+   - a summary that a person on call understands without context, such as `Sump water level is high`. 1 to 1024 characters, on one line.
 
    Signal names become a public interface once released, because each user's settings for a signal are saved under its name. Do not rename them later.
 
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS signals (
 | `signal` | The condition's name. |
 | `active` | `1` while the condition is present, `0` once it has cleared. |
 | `severity` | `info`, `warning`, `error` or `critical`. |
-| `summary` | The alert title in PagerDuty. |
+| `summary` | The alert title in PagerDuty. No control characters, such as newlines. |
 | `updated_at` | The time of the write, in Unix milliseconds. |
 
 ### Opening the store
@@ -126,6 +126,7 @@ const STORE_DIR = 'homebridge-pagerduty'
 const STORE_FILE = 'signals.sqlite'
 const INTERFACE_VERSION = 1
 const MAX_SUMMARY_LENGTH = 1024
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]+/g
 
 // The homebridge-pagerduty signal store interface, version 1. Every writer
 // must run this exact text: the first process to run it defines the table.
@@ -161,7 +162,7 @@ export class PagerDutySignals {
 
   /** Record a signal's current state. Skipped when nothing changed since the last write. */
   write(signal: string, state: SignalState): void {
-    const summary = state.summary.slice(0, MAX_SUMMARY_LENGTH)
+    const summary = state.summary.replace(CONTROL_CHARACTERS, ' ').slice(0, MAX_SUMMARY_LENGTH)
     const fingerprint = `${state.active ? 1 : 0}|${state.severity}|${summary}`
     if (this.isDisabled || this.lastWritten.get(signal) === fingerprint) {
       return
@@ -235,7 +236,7 @@ What the module handles for you:
 - **It skips a write when nothing changed** since the last write of that signal. Call `write` freely, for example on every device update.
 - **It never throws.** A failed write logs one `warn` and is tried again at the next change.
 - **It turns itself off,** with one `warn`, on a Node version without `node:sqlite`, or when the store belongs to a newer interface.
-- **It caps the summary** at 1024 characters.
+- **It cleans the summary.** Control characters such as newlines become spaces, because homebridge-pagerduty ignores a row whose summary has one, and the summary is capped at 1024 characters.
 
 In TypeScript, the `node:sqlite` types come from `@types/node` 22.13 or later. If the plugin's `@types/node` is older, raise it in `devDependencies` only.
 

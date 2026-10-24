@@ -110,9 +110,9 @@ class SignalReader {
                 dev: stats.dev,
                 ino: stats.ino,
                 rows: this.options.allowed.length === 0 ? undefined : db.prepare('SELECT plugin, signal, active, severity, summary, updated_at FROM signals '
-                    + `WHERE plugin IN (${placeholders}) ORDER BY updated_at DESC LIMIT ${settings_1.MAX_SIGNAL_ROWS}`),
+                    + `WHERE plugin IN (${placeholders}) ORDER BY updated_at DESC LIMIT ${settings_1.MAX_SIGNAL_ROWS + 1}`),
                 catalog: db.prepare('SELECT plugin, signal, summary FROM signals WHERE plugin <> ? '
-                    + `ORDER BY plugin, signal LIMIT ${settings_1.MAX_CATALOG_ROWS}`),
+                    + `ORDER BY plugin, signal LIMIT ${settings_1.MAX_CATALOG_SCAN_ROWS}`),
                 dataVersion: db.prepare('PRAGMA data_version'),
                 lastDataVersion: undefined,
             };
@@ -130,7 +130,7 @@ class SignalReader {
         const raw = (connection.rows?.all(...this.options.allowed) ?? []);
         const rows = [];
         let invalidRows = 0;
-        for (const entry of raw) {
+        for (const entry of raw.slice(0, settings_1.MAX_SIGNAL_ROWS)) {
             const row = (0, schema_1.validateRow)(entry);
             if (row === undefined) {
                 invalidRows += 1;
@@ -141,9 +141,10 @@ class SignalReader {
         }
         const catalog = connection.catalog.all(settings_1.PLUGIN_NAME)
             .map(schema_1.validateCatalogEntry)
-            .filter((entry) => entry !== undefined);
+            .filter((entry) => entry !== undefined)
+            .slice(0, settings_1.MAX_CATALOG_ROWS);
         connection.lastDataVersion = version;
-        return { kind: 'rows', rows, complete: raw.length < settings_1.MAX_SIGNAL_ROWS, catalog, invalidRows };
+        return { kind: 'rows', rows, complete: raw.length <= settings_1.MAX_SIGNAL_ROWS, catalog, invalidRows };
     }
     checkVersion(db) {
         const row = db.prepare('PRAGMA user_version').get();

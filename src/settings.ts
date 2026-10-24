@@ -131,7 +131,10 @@ export const SIGNAL_STORE_FAULT_AFTER_MS = 300_000
  */
 export const READER_BUSY_TIMEOUT_MS = 250
 
-/** Read cap, applied after the allowlist filter in the query. */
+/**
+ * Read cap, applied after the allowlist filter in the query. The query asks
+ * for one row more, so a read of exactly this many is known to be complete.
+ */
 export const MAX_SIGNAL_ROWS = 1_000
 
 /** Plugins shown under Plugin Signals and accepted in `signals`. */
@@ -142,6 +145,16 @@ export const MAX_SIGNALS_PER_PLUGIN = 50
 
 /** Read cap for the list of every plugin's signals, which only feeds the settings screen. */
 export const MAX_CATALOG_ROWS = MAX_SIGNAL_PLUGINS * MAX_SIGNALS_PER_PLUGIN
+
+/**
+ * Rows scanned to fill the catalog. The table's `CHECK` accepts some names that
+ * validation rejects, so the cap on valid rows is applied after validation,
+ * and this bounds the scan.
+ */
+export const MAX_CATALOG_SCAN_ROWS = MAX_CATALOG_ROWS * 5
+
+/** Rejected in any name or text this plugin accepts from config or another plugin. */
+export const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/
 
 /**
  * Signal switches exposed. With every alert at four levels, the maintenance

@@ -135,8 +135,9 @@ export interface RowsResult {
  * Fold a successful read of the signal store into state.
  *
  * A row changes only when `active` or `severity` changes; an `updated_at`
- * change alone is not a change. A changed row sets its signal's switch, and
- * the last change wins over a person's. A row that has gone counts as cleared,
+ * change alone is not a change. A changed row sets its signal's switch unless
+ * a person set the switch after the row changed: the later change wins, by
+ * when it happened, not by when it was read. A row that has gone counts as cleared,
  * but only after a read that is known to be complete.
  */
 export function applyRows(state: PersistedState, update: RowsUpdate): RowsResult {
@@ -187,9 +188,14 @@ function clearMissingRows(
 }
 
 function driveSwitch(input: { state: PersistedState; update: RowsUpdate; key: string; on: boolean; at: number }): void {
-  if (input.update.switches.has(input.key)) {
-    input.state.switches[input.key] = { on: input.on, changedAt: input.at }
+  if (!input.update.switches.has(input.key)) {
+    return
   }
+  const current = input.state.switches[input.key]
+  if (current !== undefined && input.at < current.changedAt) {
+    return
+  }
+  input.state.switches[input.key] = { on: input.on, changedAt: input.at }
 }
 
 /** A person set a signal switch. Returns true when it changed. */

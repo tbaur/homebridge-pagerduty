@@ -165,6 +165,39 @@ describe('SignalReader', () => {
     expect(rowsOf(subject.poll()).rows.map((row) => row.signal)).toEqual(['new'])
   })
 
+  it('says a read of exactly the cap is complete', () => {
+    const subject = reader()
+    subject.create()
+    write(Array.from({ length: 1_000 }, (_unused, index) => ({ signal: `s${index}`, active: 1 as const, at: index })))
+
+    const result = rowsOf(subject.poll())
+
+    expect(result.rows).toHaveLength(1_000)
+    expect(result.complete).toBe(true)
+  })
+
+  it('fills the list of signals with valid rows, so rows that fail validation cannot crowd real plugins out', () => {
+    const subject = reader({ allowed: [] })
+    write([
+      ...Array.from({ length: 1_000 }, (_unused, index) => ({ plugin: '@@@', signal: `s${index}`, active: 0 as const })),
+      { signal: 'door', active: 1 },
+    ])
+
+    expect(rowsOf(subject.poll()).catalog).toEqual([{ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' }])
+  })
+
+  it('rejects a row whose text has control characters', () => {
+    const subject = reader()
+    subject.create()
+    write([{ signal: 'door', active: 1, summary: 'Line one\nLine two' }, { signal: 'window', active: 1 }])
+
+    const result = rowsOf(subject.poll())
+
+    expect(result.rows.map((row) => row.signal)).toEqual(['window'])
+    expect(result.invalidRows).toBe(1)
+    expect(result.catalog.map((entry) => entry.signal)).toEqual(['window'])
+  })
+
   it('says the read was incomplete when it hit the cap', () => {
     const subject = reader()
     subject.create()

@@ -36,7 +36,7 @@ const redact_1 = require("./redact");
 exports.ROUTING_KEY_PATTERN = /^[A-Za-z0-9]{32}$/;
 exports.SOURCE_PATTERN = /^[A-Za-z0-9._-]{1,32}$/;
 exports.ALERT_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
-const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
+const MAX_LISTED_SKIPPED_SWITCHES = 5;
 /**
  * Validate a platform configuration block.
  *
@@ -147,7 +147,10 @@ function validateSignalPlugins(value, warnings) {
     const plugins = [];
     for (const [key, entry] of Object.entries(value)) {
         const plugin = (0, schema_1.pluginFromConfigKey)(key);
-        if (plugin === undefined || !isPlainObject(entry)) {
+        if (key === 'sources' && Array.isArray(entry)) {
+            warnings.push('signals.sources is no longer used; allow each plugin under Plugin Signals instead');
+        }
+        else if (plugin === undefined || !isPlainObject(entry)) {
             warnings.push(`signals: ${(0, redact_1.forLog)(key)} is not a package name with settings; skipped`);
         }
         else if (plugins.some((existing) => existing.plugin === plugin)) {
@@ -278,6 +281,9 @@ function validateAlert(entry, index, warnings) {
     const summary = validateText({ value: alert.summary, field: 'summary', max: settings_1.MAX_SUMMARY_LENGTH, problems });
     const levels = validateLevels(alert.levels, name ?? id, problems);
     const resolveAfterMinutes = validateMinutes(alert.resolveAfterMinutes, problems);
+    if ('signal' in alert) {
+        warnings.push(`alert ${id}: signal is no longer used, so its switch no longer follows a signal. If the switch is on, turn it off, or its PagerDuty alert stays open`);
+    }
     if (name === undefined || summary === undefined || levels === undefined || problems.length > 0) {
         warnings.push(`alert ${id} is held until fixed (nothing is sent or removed): ${problems.join('; ')}`);
         return { kind: 'held', id };
@@ -304,7 +310,7 @@ function validateText(input) {
         return undefined;
     }
     const text = value.trim();
-    if (CONTROL_CHARACTERS.test(text)) {
+    if (settings_1.CONTROL_CHARACTERS.test(text)) {
         problems.push(`${field} contains control characters`);
         return undefined;
     }
@@ -458,9 +464,11 @@ function resolveAccessories(config, warnings) {
 }
 /** A switch for each signal that asks for one, from allowed plugins only, up to the cap. */
 function resolveSignalSwitches(config, warnings) {
-    const skipped = (0, config_1.requestedSignalSwitches)(config).length - settings_1.MAX_SIGNAL_SWITCHES;
-    if (skipped > 0) {
-        warnings?.push(`at most ${settings_1.MAX_SIGNAL_SWITCHES} signal switches are created; ${skipped} skipped`);
+    const skipped = (0, config_1.requestedSignalSwitches)(config).slice(settings_1.MAX_SIGNAL_SWITCHES);
+    if (skipped.length > 0) {
+        const names = skipped.slice(0, MAX_LISTED_SKIPPED_SWITCHES).map(schema_1.signalRefKey).join(', ');
+        const rest = skipped.length - MAX_LISTED_SKIPPED_SWITCHES;
+        warnings?.push(`at most ${settings_1.MAX_SIGNAL_SWITCHES} signal switches are created; skipped ${names}${rest > 0 ? ` and ${rest} more` : ''}`);
     }
     return (0, config_1.signalSwitches)(config).map((signal) => ({
         kind: 'signal',

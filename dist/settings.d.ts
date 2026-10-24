@@ -95,7 +95,10 @@ export declare const SIGNAL_STORE_FAULT_AFTER_MS = 300000;
  * process. On `SQLITE_BUSY` the reader skips the poll and keeps the last rows.
  */
 export declare const READER_BUSY_TIMEOUT_MS = 250;
-/** Read cap, applied after the allowlist filter in the query. */
+/**
+ * Read cap, applied after the allowlist filter in the query. The query asks
+ * for one row more, so a read of exactly this many is known to be complete.
+ */
 export declare const MAX_SIGNAL_ROWS = 1000;
 /** Plugins shown under Plugin Signals and accepted in `signals`. */
 export declare const MAX_SIGNAL_PLUGINS = 20;
@@ -103,6 +106,14 @@ export declare const MAX_SIGNAL_PLUGINS = 20;
 export declare const MAX_SIGNALS_PER_PLUGIN = 50;
 /** Read cap for the list of every plugin's signals, which only feeds the settings screen. */
 export declare const MAX_CATALOG_ROWS: number;
+/**
+ * Rows scanned to fill the catalog. The table's `CHECK` accepts some names that
+ * validation rejects, so the cap on valid rows is applied after validation,
+ * and this bounds the scan.
+ */
+export declare const MAX_CATALOG_SCAN_ROWS: number;
+/** Rejected in any name or text this plugin accepts from config or another plugin. */
+export declare const CONTROL_CHARACTERS: RegExp;
 /**
  * Signal switches exposed. With every alert at four levels, the maintenance
  * switch and the delivery sensor, this stays inside the 149 accessories a

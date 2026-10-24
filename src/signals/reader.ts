@@ -28,6 +28,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite'
 
 import {
   MAX_CATALOG_ROWS,
+  MAX_CATALOG_SCAN_ROWS,
   MAX_SIGNAL_ROWS,
   PLUGIN_NAME,
   PRIVATE_DIR_MODE,
@@ -156,11 +157,11 @@ export class SignalReader {
         ino: stats.ino,
         rows: this.options.allowed.length === 0 ? undefined : db.prepare(
           'SELECT plugin, signal, active, severity, summary, updated_at FROM signals '
-          + `WHERE plugin IN (${placeholders}) ORDER BY updated_at DESC LIMIT ${MAX_SIGNAL_ROWS}`,
+          + `WHERE plugin IN (${placeholders}) ORDER BY updated_at DESC LIMIT ${MAX_SIGNAL_ROWS + 1}`,
         ),
         catalog: db.prepare(
           'SELECT plugin, signal, summary FROM signals WHERE plugin <> ? '
-          + `ORDER BY plugin, signal LIMIT ${MAX_CATALOG_ROWS}`,
+          + `ORDER BY plugin, signal LIMIT ${MAX_CATALOG_SCAN_ROWS}`,
         ),
         dataVersion: db.prepare('PRAGMA data_version'),
         lastDataVersion: undefined,
@@ -179,7 +180,7 @@ export class SignalReader {
     const raw = (connection.rows?.all(...this.options.allowed) ?? []) as Record<string, unknown>[]
     const rows: SignalRow[] = []
     let invalidRows = 0
-    for (const entry of raw) {
+    for (const entry of raw.slice(0, MAX_SIGNAL_ROWS)) {
       const row = validateRow(entry)
       if (row === undefined) {
         invalidRows += 1
@@ -190,8 +191,9 @@ export class SignalReader {
     const catalog = (connection.catalog.all(PLUGIN_NAME) as Record<string, unknown>[])
       .map(validateCatalogEntry)
       .filter((entry): entry is CatalogEntry => entry !== undefined)
+      .slice(0, MAX_CATALOG_ROWS)
     connection.lastDataVersion = version
-    return { kind: 'rows', rows, complete: raw.length < MAX_SIGNAL_ROWS, catalog, invalidRows }
+    return { kind: 'rows', rows, complete: raw.length <= MAX_SIGNAL_ROWS, catalog, invalidRows }
   }
 
   private checkVersion(db: DatabaseSync): void {

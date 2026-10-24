@@ -55,6 +55,7 @@ What the plugin does, and what it does not do.
 | Accessory | HomeKit service | Count |
 | --- | --- | --- |
 | Alert level | Switch | One per level of each alert |
+| Signal switch | Switch | One per signal with Create HomeKit Switch checked, up to 20 |
 | Maintenance | Switch | One, when `maintenance.switch` is true |
 | Delivery | ContactSensor, open means pages are not going out | One, unless `options.deliveryFaultSensor` is false |
 

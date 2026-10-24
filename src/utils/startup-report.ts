@@ -59,7 +59,7 @@ export function formatStartupReport(input: StartupReportInput): string[] {
   }
   for (const accessory of accessories) {
     if (accessory.kind === 'signal' && accessory.signal !== undefined) {
-      lines.push(`Signal switch: ${nameOf(accessory, changes)} for ${accessory.signal.plugin}/${accessory.signal.signal}`)
+      lines.push(`Signal switch: ${nameOf(accessory, changes)} for ${forLog(`${accessory.signal.plugin}/${accessory.signal.signal}`)}`)
     } else if (accessory.kind === 'maintenance') {
       lines.push(`Maintenance switch: ${nameOf(accessory, changes)}; turns off after ${config.maintenance.maxMinutes} min`)
     } else if (accessory.kind === 'delivery') {
@@ -83,7 +83,9 @@ function platformLine({ config, pluginVersion }: StartupReportInput): string {
 function signalsByPlugin(catalog: readonly CatalogEntry[], config: ResolvedConfig): Map<string, string[]> {
   const grouped = new Map<string, string[]>(allowedPlugins(config).map((plugin) => [plugin, []]))
   for (const entry of catalog) {
-    grouped.set(entry.plugin, [...grouped.get(entry.plugin) ?? [], entry.signal])
+    const signals = grouped.get(entry.plugin) ?? []
+    signals.push(entry.signal)
+    grouped.set(entry.plugin, signals)
   }
   return new Map([...grouped].sort(([a], [b]) => a.localeCompare(b)))
 }
@@ -99,7 +101,7 @@ function signalLine(plugin: string, written: readonly string[], config: Resolved
       parts.push(`muted: ${listSignals(muted)}`)
     }
   }
-  return `Signals from ${plugin}: ${parts.join('; ')}`
+  return `Signals from ${forLog(plugin)}: ${parts.join('; ')}`
 }
 
 function listSignals(names: readonly string[]): string {
