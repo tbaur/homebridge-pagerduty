@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/tbaur/homebridge-pagerduty/compare/v1.1.1...v1.1.2) (2026-10-24)
+
+
+### Bug Fixes
+
+* make Follow Signal clearer and list available signals at startup ([#12](https://github.com/tbaur/homebridge-pagerduty/issues/12)) ([1ab8fba](https://github.com/tbaur/homebridge-pagerduty/commit/1ab8fba90f373cd3ee52e68220d3efcb8e3c1fe0))
+
 ## [1.1.1](https://github.com/tbaur/homebridge-pagerduty/compare/v1.1.0...v1.1.1) (2026-10-24)
 
 
