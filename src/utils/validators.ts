@@ -23,7 +23,9 @@
 
 import { isAllowableSource, parseSignalRef } from '../signals/schema'
 import {
+  DEFAULT_DELIVERY_SENSOR_NAME,
   DEFAULT_MAINTENANCE_MAX_MINUTES,
+  DEFAULT_MAINTENANCE_NAME,
   DEFAULT_SOURCE,
   MAX_ALERTS,
   MAX_DIAGNOSTICS_INTERVAL_SEC,
@@ -98,6 +100,12 @@ export function validateConfig(raw: unknown): ConfigValidationResult {
   warnAboutUnreadSignals(alerts, signalSources, warnings)
   const maintenance = {
     switch: config.maintenance?.switch === true,
+    name: validateAccessoryName({
+      value: config.maintenance?.name,
+      label: 'maintenance.name',
+      fallback: DEFAULT_MAINTENANCE_NAME,
+      warnings,
+    }),
     maxMinutes: clampInteger({
       value: config.maintenance?.maxMinutes,
       label: 'maintenance.maxMinutes',
@@ -282,6 +290,25 @@ function validateText(input: {
   return text
 }
 
+/** An optional accessory name. A bad value keeps the default rather than holding the accessory. */
+function validateAccessoryName(input: { value: unknown; label: string; fallback: string; warnings: string[] }): string {
+  const { value, label, fallback, warnings } = input
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+    return fallback
+  }
+  if (typeof value !== 'string') {
+    warnings.push(`${label} is not text; using ${forLog(fallback)}`)
+    return fallback
+  }
+  const problems: string[] = []
+  const name = validateText({ value, field: label, max: MAX_NAME_LENGTH, problems })
+  if (name === undefined) {
+    warnings.push(`${problems.join('; ')}; using ${forLog(fallback)}`)
+    return fallback
+  }
+  return name
+}
+
 function validateLevels(value: unknown, alertName: string, problems: string[]): ResolvedLevel[] | undefined {
   if (!Array.isArray(value) || value.length === 0 || value.length > MAX_LEVELS) {
     problems.push(`levels must list 1 to ${MAX_LEVELS} entries`)
@@ -366,6 +393,12 @@ function warnAboutUnreadSignals(alerts: ResolvedAlert[], sources: string[], warn
 function validateOptions(value: PagerDutyPlatformConfig['options'], warnings: string[]): ResolvedOptions {
   return {
     deliveryFaultSensor: value?.deliveryFaultSensor !== false,
+    deliveryFaultSensorName: validateAccessoryName({
+      value: value?.deliveryFaultSensorName,
+      label: 'options.deliveryFaultSensorName',
+      fallback: DEFAULT_DELIVERY_SENSOR_NAME,
+      warnings,
+    }),
     dryRun: value?.dryRun === true,
     diagnosticsInterval: resolveDiagnosticsIntervalSec(value?.diagnosticsInterval, warnings),
     structuredLogs: value?.structuredLogs === true,
@@ -434,10 +467,10 @@ export function resolveAccessories(config: ResolvedConfig, warnings?: string[]):
     }
   }
   if (config.maintenance.switch) {
-    accessories.push({ kind: 'maintenance', name: 'PagerDuty Maintenance' })
+    accessories.push({ kind: 'maintenance', name: config.maintenance.name })
   }
   if (config.options.deliveryFaultSensor) {
-    accessories.push({ kind: 'delivery', name: 'PagerDuty Delivery' })
+    accessories.push({ kind: 'delivery', name: config.options.deliveryFaultSensorName })
   }
   const counts = new Map<string, number>()
   for (const accessory of accessories) {

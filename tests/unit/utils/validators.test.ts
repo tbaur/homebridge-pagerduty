@@ -79,9 +79,15 @@ describe('validateConfig: platform fields', () => {
       source: 'homebridge',
       alerts: [],
       heldAlertIds: [],
-      maintenance: { switch: false, maxMinutes: 240 },
+      maintenance: { switch: false, name: 'PagerDuty Maintenance', maxMinutes: 240 },
       signalSources: [],
-      options: { deliveryFaultSensor: true, dryRun: false, diagnosticsInterval: 0, structuredLogs: false },
+      options: {
+        deliveryFaultSensor: true,
+        deliveryFaultSensorName: 'PagerDuty Delivery',
+        dryRun: false,
+        diagnosticsInterval: 0,
+        structuredLogs: false,
+      },
     }))
   })
 
@@ -101,7 +107,7 @@ describe('validateConfig: platform fields', () => {
 
   it('clamps maintenance.maxMinutes into range and defaults a non-number', () => {
     const low = validateConfig(base({ maintenance: { switch: true, maxMinutes: 1 } }))
-    expect(low.config?.maintenance).toEqual({ switch: true, maxMinutes: 15 })
+    expect(low.config?.maintenance).toEqual({ switch: true, name: 'PagerDuty Maintenance', maxMinutes: 15 })
     expect(low.warnings).toEqual(['maintenance.maxMinutes clamped to 15'])
 
     expect(ok(base({ maintenance: { maxMinutes: 99_999 } })).maintenance.maxMinutes).toBe(10_080)
@@ -110,9 +116,42 @@ describe('validateConfig: platform fields', () => {
   })
 
   it('reads options', () => {
-    const config = ok(base({ options: { deliveryFaultSensor: false, dryRun: true, diagnosticsInterval: 60, structuredLogs: true } }))
+    const options = {
+      deliveryFaultSensor: false,
+      deliveryFaultSensorName: 'Paging Health',
+      dryRun: true,
+      diagnosticsInterval: 60,
+      structuredLogs: true,
+    }
 
-    expect(config.options).toEqual({ deliveryFaultSensor: false, dryRun: true, diagnosticsInterval: 60, structuredLogs: true })
+    expect(ok(base({ options })).options).toEqual(options)
+  })
+
+  it('trims user-chosen names for the maintenance switch and delivery sensor', () => {
+    const config = ok(base({
+      maintenance: { switch: true, name: '  House Work  ' },
+      options: { deliveryFaultSensorName: ' Paging Health ' },
+    }))
+
+    expect(config.maintenance.name).toBe('House Work')
+    expect(config.options.deliveryFaultSensorName).toBe('Paging Health')
+  })
+
+  it('keeps the default name for a blank one, and warns about an unusable one', () => {
+    expect(ok(base({ maintenance: { name: '   ' } })).maintenance.name).toBe('PagerDuty Maintenance')
+
+    const result = validateConfig(base({
+      maintenance: { name: 'x'.repeat(65) },
+      options: { deliveryFaultSensorName: 7 },
+    }))
+    expect(result.config?.maintenance.name).toBe('PagerDuty Maintenance')
+    expect(result.config?.options.deliveryFaultSensorName).toBe('PagerDuty Delivery')
+    expect(result.warnings).toEqual([
+      'maintenance.name is longer than 64 characters; using PagerDuty Maintenance',
+      'options.deliveryFaultSensorName is not text; using PagerDuty Delivery',
+    ])
+    expect(validateConfig(base({ maintenance: { name: 'Bad\nName' } })).warnings)
+      .toEqual(['maintenance.name contains control characters; using PagerDuty Maintenance'])
   })
 })
 
@@ -270,17 +309,32 @@ describe('resolveAccessories', () => {
     ])
   })
 
-  it('leaves out the optional accessories when they are off', () => {
+  it('uses the configured names for the maintenance switch and delivery sensor', () => {
+    const base = resolvedConfig()
     const config = resolvedConfig({
-      maintenance: { switch: false, maxMinutes: 240 },
-      options: { deliveryFaultSensor: false, dryRun: false, diagnosticsInterval: 0, structuredLogs: false },
+      maintenance: { ...base.maintenance, name: 'House Work' },
+      options: { ...base.options, deliveryFaultSensorName: 'Paging Health' },
+    })
+
+    expect(resolveAccessories(config).slice(1)).toEqual([
+      { kind: 'maintenance', name: 'House Work' },
+      { kind: 'delivery', name: 'Paging Health' },
+    ])
+  })
+
+  it('leaves out the optional accessories when they are off', () => {
+    const base = resolvedConfig()
+    const config = resolvedConfig({
+      maintenance: { ...base.maintenance, switch: false },
+      options: { ...base.options, deliveryFaultSensor: false },
     })
 
     expect(resolveAccessories(config).map((entry) => entry.kind)).toEqual(['alert'])
   })
 
   it('warns once about duplicate names', () => {
-    const config = resolvedConfig({ maintenance: { switch: false, maxMinutes: 240 } })
+    const config = resolvedConfig()
+    config.maintenance.switch = false
     config.alerts.push({ ...config.alerts[0]!, id: 'other' })
     const warnings: string[] = []
 

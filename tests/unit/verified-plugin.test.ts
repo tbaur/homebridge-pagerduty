@@ -41,7 +41,10 @@ interface ConfigSchema {
   singular?: boolean
   customUi?: boolean
   schema: SchemaNode & { properties: Record<string, SchemaNode> }
+  layout?: LayoutItem[]
 }
+
+type LayoutItem = string | { key?: string; items?: LayoutItem[] }
 
 interface PackageManifest {
   name?: string
@@ -72,6 +75,37 @@ function walk(node: SchemaNode | undefined, visit: (node: SchemaNode, path: stri
     walk(child, visit, `${path}.${name}`)
   }
   walk(node.items, visit, `${path}[]`)
+}
+
+/** Layout key for every schema node, such as `alerts[].levels[].severity`. */
+function schemaKeys(): { all: Set<string>; fields: string[] } {
+  const all = new Set<string>()
+  const fields: string[] = []
+  walk(schema.schema, (node, path) => {
+    if (path === '$') {
+      return
+    }
+    const key = path.slice(2).replace(/\.\[\]/g, '[]')
+    all.add(key)
+    if (node.type !== 'object' && node.type !== 'array') {
+      fields.push(key)
+    }
+  })
+  return { all, fields }
+}
+
+function layoutKeys(items: LayoutItem[], keys: string[] = []): string[] {
+  for (const item of items) {
+    if (typeof item === 'string') {
+      keys.push(item)
+    } else {
+      if (item.key !== undefined) {
+        keys.push(item.key)
+      }
+      layoutKeys(item.items ?? [], keys)
+    }
+  }
+  return keys
 }
 
 describe('config.schema.json', () => {
@@ -139,6 +173,14 @@ describe('config.schema.json', () => {
       minimum: settings.MIN_MAINTENANCE_MAX_MINUTES,
       maximum: settings.MAX_MAINTENANCE_MAX_MINUTES,
     }))
+    expect(props.maintenance!.properties!.name).toEqual(expect.objectContaining({
+      default: settings.DEFAULT_MAINTENANCE_NAME,
+      maxLength: settings.MAX_NAME_LENGTH,
+    }))
+    expect(props.options!.properties!.deliveryFaultSensorName).toEqual(expect.objectContaining({
+      default: settings.DEFAULT_DELIVERY_SENSOR_NAME,
+      maxLength: settings.MAX_NAME_LENGTH,
+    }))
   })
 
   it('declares diagnosticsInterval with the same default and range as settings', () => {
@@ -149,6 +191,15 @@ describe('config.schema.json', () => {
       'x-schema-form': { type: 'number' },
     }))
     expect(props.options!.properties!.structuredLogs).toEqual(expect.objectContaining({ type: 'boolean', default: false }))
+  })
+
+  it('places every setting in the layout once, because the UI hides any field the layout leaves out', () => {
+    const { all, fields } = schemaKeys()
+    const placed = layoutKeys(schema.layout ?? [])
+
+    expect(placed.filter((key) => !all.has(key))).toEqual([])
+    expect(fields.filter((key) => !placed.includes(key))).toEqual([])
+    expect(placed.filter((key, index) => placed.indexOf(key) !== index)).toEqual([])
   })
 
   it('accepts the documented example signal reference and package name', () => {

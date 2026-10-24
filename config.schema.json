@@ -2,11 +2,13 @@
   "pluginAlias": "PagerDuty",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Turns HomeKit switches into PagerDuty alerts. Each alert level is a switch: turn it on and PagerDuty opens an alert, turn it off and the alert resolves. Use them from HomeKit automations, for example \"when the leak sensor detects water, turn on Leak\". Paste the integration key from an Events API v2 integration on a PagerDuty service.",
-  "footerDisplay": "The integration key is stored in the Homebridge configuration file, as every Homebridge credential is. It is never written to the Homebridge log. See the [documentation](https://github.com/tbaur/homebridge-pagerduty#readme) for how alerts, maintenance and the delivery sensor behave.",
+  "headerDisplay": "Each alert becomes a HomeKit switch. Turn it on and PagerDuty pages someone. Turn it off and the alert resolves. Use HomeKit automations to turn the switches on, for example: when the leak sensor detects water, turn on Leak.",
+  "footerDisplay": "The integration key is stored in the Homebridge configuration file, like every Homebridge credential, and is never written to the log. The [documentation](https://github.com/tbaur/homebridge-pagerduty#readme) explains each setting.",
   "schema": {
     "type": "object",
-    "required": ["name"],
+    "required": [
+      "name"
+    ],
     "properties": {
       "name": {
         "title": "Platform Name",
@@ -20,15 +22,20 @@
         "minLength": 32,
         "maxLength": 32,
         "pattern": "^[A-Za-z0-9]{32}$",
-        "x-schema-form": { "type": "password" },
-        "description": "The 32-character Integration Key from an Events API v2 integration (or an Event Orchestration routing key). Without it the plugin starts nothing. It is never written to the log."
+        "x-schema-form": {
+          "type": "password"
+        },
+        "description": "From an Events API v2 integration on the PagerDuty service that should be paged."
       },
       "region": {
-        "title": "Region",
+        "title": "Service Region",
         "type": "string",
-        "enum": ["us", "eu"],
+        "enum": [
+          "us",
+          "eu"
+        ],
         "default": "us",
-        "description": "Use eu if your PagerDuty account is hosted in the EU service region (your PagerDuty address ends in .eu.pagerduty.com)."
+        "description": "Choose EU if your PagerDuty address ends in .eu.pagerduty.com."
       },
       "source": {
         "title": "Source",
@@ -37,7 +44,7 @@
         "maxLength": 32,
         "pattern": "^[A-Za-z0-9._-]{1,32}$",
         "default": "homebridge",
-        "description": "Shown on each alert in PagerDuty, and part of how PagerDuty tells alerts apart. If two Homebridge installs share one integration key, give each a different source. Changing it while an alert is open leaves that alert open in PagerDuty, so resolve open alerts first."
+        "description": "Shown on each alert in PagerDuty. If two Homebridge installs share one integration key, give each a different source. Resolve open alerts before you change it."
       },
       "alerts": {
         "title": "Alerts",
@@ -46,78 +53,98 @@
         "items": {
           "type": "object",
           "title": "Alert",
-          "required": ["id", "name", "summary", "levels"],
+          "required": [
+            "id",
+            "name",
+            "summary",
+            "levels"
+          ],
           "properties": {
             "id": {
-              "title": "ID",
+              "title": "Alert ID",
               "type": "string",
               "minLength": 1,
               "maxLength": 32,
               "pattern": "^[a-z][a-z0-9-]{0,31}$",
-              "examples": ["leak"],
-              "description": "Stable identity: lowercase letters, digits and hyphens, starting with a letter. Changing it creates a new alert and new HomeKit tiles, which detaches rooms and automations."
+              "examples": [
+                "leak"
+              ],
+              "description": "A short, permanent ID, such as leak. If you change it, HomeKit replaces the switch and loses its room and automations."
             },
             "name": {
-              "title": "Name",
+              "title": "HomeKit Name",
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
-              "examples": ["Leak"],
-              "description": "The HomeKit tile name. Renaming keeps rooms and automations."
+              "examples": [
+                "Leak"
+              ],
+              "description": "The switch name in the Home app. Safe to rename."
             },
             "summary": {
-              "title": "Summary",
+              "title": "PagerDuty Title",
               "type": "string",
               "minLength": 1,
               "maxLength": 1024,
-              "examples": ["Water leak detected"],
-              "description": "The alert title in PagerDuty."
+              "examples": [
+                "Water leak detected"
+              ],
+              "description": "What the person who is paged reads first."
             },
             "levels": {
-              "title": "Levels",
+              "title": "Severity",
               "type": "array",
               "minItems": 1,
               "maxItems": 4,
-              "description": "One switch per level. While several are on, PagerDuty shows the highest. Use a single level unless the same problem can be more or less urgent.",
+              "description": "Most alerts need one level. Add another only when the same problem can be more or less urgent. Each level is its own switch.",
               "items": {
                 "type": "object",
                 "title": "Level",
-                "required": ["severity"],
+                "required": [
+                  "severity"
+                ],
                 "properties": {
                   "severity": {
                     "title": "Severity",
                     "type": "string",
-                    "enum": ["info", "warning", "error", "critical"],
-                    "description": "Each level in one alert needs a different severity."
+                    "enum": [
+                      "info",
+                      "warning",
+                      "error",
+                      "critical"
+                    ],
+                    "description": "Use a different severity for each level."
                   },
                   "name": {
                     "title": "Switch Name",
                     "type": "string",
                     "maxLength": 64,
-                    "description": "Optional. Defaults to the alert name for a single level, and to the alert name plus the severity otherwise, for example \"Freezer Critical\"."
+                    "description": "Optional. Defaults to the HomeKit name."
                   }
                 }
               }
             },
             "resolveAfterMinutes": {
-              "title": "Resolve After (minutes)",
+              "title": "Turn Off After (minutes)",
               "type": "integer",
               "minimum": 0,
               "maximum": 10080,
-              "description": "Turn the alert's switches off this many minutes after the last one was turned on. 0 or blank keeps them on until something turns them off."
+              "description": "Optional. Turns the switch off, which resolves the alert, this many minutes after it turns on."
             },
             "bypassMaintenance": {
               "title": "Page During Maintenance",
               "type": "boolean",
-              "description": "Send this alert even while the maintenance switch is on. Use it for alerts that must never wait, such as a leak."
+              "description": "Page even while the maintenance switch is on. Use it for alerts that must never wait."
             },
             "signal": {
-              "title": "Signal",
+              "title": "Follow Signal",
               "type": "string",
               "maxLength": 193,
               "pattern": "^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*/[a-z0-9._-]{1,64}$",
-              "examples": ["homebridge-example/sump-high"],
-              "description": "Optional, for advanced setups. Mirrors one row that another plugin writes to the signal store, as package/signal. The package must also be listed under Signal Sources, and the alert must have exactly one level."
+              "examples": [
+                "homebridge-example/sump-high"
+              ],
+              "description": "Advanced. Follow a signal from another plugin, written as package/signal. The alert must have one level."
             }
           }
         }
@@ -130,31 +157,40 @@
             "title": "Maintenance Switch",
             "type": "boolean",
             "default": false,
-            "description": "Adds a PagerDuty Maintenance switch. While it is on, new alerts wait and are sent when it turns off. Resolves are always sent."
+            "description": "Adds a maintenance switch to HomeKit. While it is on, new alerts wait, and they are sent when it turns off. Resolves are always sent."
+          },
+          "name": {
+            "title": "Switch Name",
+            "type": "string",
+            "default": "PagerDuty Maintenance",
+            "maxLength": 64,
+            "description": "The name that HomeKit shows. You can rename it at any time, and it keeps its room and automations."
           },
           "maxMinutes": {
-            "title": "Maintenance Auto-Off (minutes)",
+            "title": "Turn Off After (minutes)",
             "type": "integer",
             "default": 240,
             "minimum": 15,
             "maximum": 10080,
-            "description": "The maintenance switch turns itself off after this long, so a forgotten switch cannot hold alerts for ever."
+            "description": "The maintenance switch turns itself off after this long, so a forgotten switch cannot hold alerts forever."
           }
         }
       },
       "signals": {
-        "title": "Signal Store",
+        "title": "Other Plugins",
         "type": "object",
         "properties": {
           "sources": {
             "title": "Signal Sources",
             "type": "array",
-            "description": "Package names of other plugins that may raise alerts through the signal store. Leave empty unless one of your plugins documents support for it. When this list is empty, the store is never opened.",
+            "description": "The npm package name of each plugin.",
             "items": {
               "type": "string",
               "maxLength": 128,
               "pattern": "^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$",
-              "examples": ["homebridge-example"]
+              "examples": [
+                "homebridge-example"
+              ]
             }
           }
         }
@@ -167,13 +203,20 @@
             "title": "Delivery Fault Sensor",
             "type": "boolean",
             "default": true,
-            "description": "Adds a PagerDuty Delivery contact sensor that opens while an alert could not be delivered for two minutes, so HomeKit can notify you that PagerDuty may not have been paged."
+            "description": "Adds a contact sensor to HomeKit. It opens when an alert could not be delivered for two minutes, so HomeKit can tell you that nobody may have been paged."
+          },
+          "deliveryFaultSensorName": {
+            "title": "Sensor Name",
+            "type": "string",
+            "default": "PagerDuty Delivery",
+            "maxLength": 64,
+            "description": "The name that HomeKit shows. You can rename it at any time, and it keeps its room and automations."
           },
           "dryRun": {
             "title": "Dry Run",
             "type": "boolean",
             "default": false,
-            "description": "Log each event that would be sent and send nothing. Useful while building automations."
+            "description": "Log each event instead of sending it. Useful while you build automations."
           },
           "diagnosticsInterval": {
             "title": "Diagnostics Interval (seconds)",
@@ -184,16 +227,187 @@
             "x-schema-form": {
               "type": "number"
             },
-            "description": "Emit a plugin health line to the Homebridge log every N seconds. 0 is off (the default). Allowed range 0–3600; values between 1 and 29 are clamped up to 30. Logs only; nothing is exposed in HomeKit."
+            "description": "Write a health line to the Homebridge log every N seconds. 0 turns it off. Values from 1 to 29 are raised to 30."
           },
           "structuredLogs": {
-            "title": "Structured (JSON) Logs",
+            "title": "JSON Diagnostics",
             "type": "boolean",
             "default": false,
-            "description": "When diagnostics are on (diagnosticsInterval > 0), also emit each report as a JSON line next to the human summary. Has no effect while diagnostics are off."
+            "description": "Also write each health line as JSON."
           }
         }
       }
     }
-  }
+  },
+  "layout": [
+    {
+      "type": "fieldset",
+      "title": "PagerDuty",
+      "expandable": false,
+      "items": [
+        "routingKey",
+        {
+          "key": "region",
+          "type": "select",
+          "titleMap": [
+            {
+              "value": "us",
+              "name": "US (pagerduty.com)"
+            },
+            {
+              "value": "eu",
+              "name": "EU (eu.pagerduty.com)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Alerts",
+      "expandable": false,
+      "description": "One alert for each thing that should page someone, such as a water leak or a smoke alarm.",
+      "items": [
+        {
+          "key": "alerts",
+          "type": "array",
+          "buttonText": "Add Alert",
+          "items": [
+            {
+              "type": "fieldset",
+              "title": "{{ value.name || 'New alert' }}",
+              "expandable": true,
+              "expanded": false,
+              "items": [
+                "alerts[].name",
+                "alerts[].summary",
+                "alerts[].id",
+                {
+                  "key": "alerts[].levels",
+                  "type": "array",
+                  "buttonText": "Add Level",
+                  "items": [
+                    {
+                      "type": "flex",
+                      "flex-flow": "row wrap",
+                      "items": [
+                        {
+                          "key": "alerts[].levels[].severity",
+                          "type": "select",
+                          "titleMap": [
+                            {
+                              "value": "critical",
+                              "name": "Critical"
+                            },
+                            {
+                              "value": "error",
+                              "name": "Error"
+                            },
+                            {
+                              "value": "warning",
+                              "name": "Warning"
+                            },
+                            {
+                              "value": "info",
+                              "name": "Info"
+                            }
+                          ]
+                        },
+                        "alerts[].levels[].name"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "key": "alerts[].resolveAfterMinutes",
+                  "type": "number"
+                },
+                {
+                  "key": "alerts[].bypassMaintenance",
+                  "condition": {
+                    "functionBody": "return model.maintenance?.switch === true;"
+                  }
+                },
+                {
+                  "key": "alerts[].signal",
+                  "condition": {
+                    "functionBody": "return (model.signals?.sources ?? []).length > 0;"
+                  }
+                }
+              ]
+            }
+          ],
+          "notitle": true
+        }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Maintenance",
+      "expandable": true,
+      "expanded": false,
+      "description": "A switch that holds new alerts while you work on the house.",
+      "items": [
+        "maintenance.switch",
+        {
+          "key": "maintenance.name",
+          "condition": {
+            "functionBody": "return model.maintenance?.switch === true;"
+          }
+        },
+        {
+          "key": "maintenance.maxMinutes",
+          "type": "number",
+          "condition": {
+            "functionBody": "return model.maintenance?.switch === true;"
+          }
+        }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Other Plugins",
+      "expandable": true,
+      "expanded": false,
+      "description": "Let another plugin page through this one, if its documentation says it supports homebridge-pagerduty.",
+      "items": [
+        {
+          "key": "signals.sources",
+          "type": "array",
+          "buttonText": "Add Plugin",
+          "items": [
+            "signals.sources[]"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Advanced",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "options.deliveryFaultSensor",
+        {
+          "key": "options.deliveryFaultSensorName",
+          "condition": {
+            "functionBody": "return model.options?.deliveryFaultSensor !== false;"
+          }
+        },
+        "options.dryRun",
+        "source",
+        "name",
+        {
+          "key": "options.diagnosticsInterval",
+          "type": "number"
+        },
+        {
+          "key": "options.structuredLogs",
+          "condition": {
+            "functionBody": "return (model.options?.diagnosticsInterval ?? 0) > 0;"
+          }
+        }
+      ]
+    }
+  ]
 }

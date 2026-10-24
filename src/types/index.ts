@@ -74,10 +74,11 @@ export interface PagerDutyPlatformConfig {
   region?: unknown
   source?: unknown
   alerts?: unknown
-  maintenance?: { switch?: unknown; maxMinutes?: unknown }
+  maintenance?: { switch?: unknown; name?: unknown; maxMinutes?: unknown }
   signals?: { sources?: unknown }
   options?: {
     deliveryFaultSensor?: unknown
+    deliveryFaultSensorName?: unknown
     dryRun?: unknown
     diagnosticsInterval?: unknown
     structuredLogs?: unknown
@@ -105,6 +106,7 @@ export interface ResolvedAlert {
 /** Platform-wide options after validation and defaulting. */
 export interface ResolvedOptions {
   deliveryFaultSensor: boolean
+  deliveryFaultSensorName: string
   dryRun: boolean
   diagnosticsInterval: number
   structuredLogs: boolean
@@ -124,7 +126,7 @@ export interface ResolvedConfig {
    * would resolve a live incident and delete the tile and its automations.
    */
   heldAlertIds: string[]
-  maintenance: { switch: boolean; maxMinutes: number }
+  maintenance: { switch: boolean; name: string; maxMinutes: number }
   signalSources: string[]
   options: ResolvedOptions
 }

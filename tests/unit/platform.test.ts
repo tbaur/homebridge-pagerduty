@@ -166,6 +166,7 @@ describe('when the config is invalid', () => {
 
     expect(log.calls).toContain('error routingKey is not a 32-character PagerDuty integration key')
     expect(log.calls).toContain('error platform disabled; cached accessories kept')
+    expect(log.calls).not.toContain('info Platform ready')
     expect(fake.unregistered).toEqual([])
     expect(() => onOf(restored).read()).toThrow(FakeHapStatusError)
   })
@@ -201,7 +202,28 @@ describe('when configured', () => {
       ['PagerDuty Maintenance', 'uuid:homebridge-pagerduty:maintenance'],
       ['PagerDuty Delivery', 'uuid:homebridge-pagerduty:delivery'],
     ])
-    expect(log.calls).toContain('info 1 alert(s), 3 accessory(ies)')
+    const startup = log.calls.slice(log.calls.findIndex((line) => line.startsWith('info Starting v')))
+    expect(startup).toEqual([
+      expect.stringMatching(/^info Starting v\S+: region US, source homebridge$/),
+      'info Alert switch: leak "Water detected" (critical)',
+      'info Maintenance switch: PagerDuty Maintenance (new); turns off after 240 min',
+      'info Delivery sensor: PagerDuty Delivery (new)',
+      'info Platform ready',
+    ])
+    await fake.shutdown()
+  })
+
+  it('reports restored accessories without the new tag, and says ready last', async () => {
+    const restored = cached('PagerDuty Maintenance', 'maintenance', { kind: 'maintenance' })
+    const { fake, log } = create(config({ options: { diagnosticsInterval: 30 } }), [restored])
+
+    fake.launch()
+
+    expect(log.calls).toContain('info Maintenance switch: PagerDuty Maintenance; turns off after 240 min')
+    const diagnostics = log.calls.findIndex((line) => line.startsWith('info Diagnostics start:'))
+    expect(diagnostics).toBeGreaterThan(-1)
+    expect(log.calls.indexOf('info Platform ready')).toBe(diagnostics + 1)
+    expect(log.calls.at(-1)).toBe('info Platform ready')
     await fake.shutdown()
   })
 
@@ -234,7 +256,27 @@ describe('when configured', () => {
     expect(fake.registered.map((accessory) => accessory.displayName)).toEqual(['PagerDuty Maintenance', 'PagerDuty Delivery'])
     expect(restored.displayNameUpdates).toEqual(['Zone One Leak'])
     expect(restored.context.serialNumber).toBe('SERIAL-0001')
-    expect(log.calls).toContain('info Old Name is now named Zone One Leak')
+    expect(log.calls).toContain('info Alert switch: leak "Water detected" (critical; renamed Old Name to Zone One Leak)')
+    expect(log.calls.filter((line) => line.includes('Old Name'))).toHaveLength(1)
+    await fake.shutdown()
+  })
+
+  it('renames the maintenance switch and delivery sensor in place, keeping their HomeKit identity', async () => {
+    const maintenance = cached('PagerDuty Maintenance', 'maintenance', { kind: 'maintenance' })
+    const delivery = cached('PagerDuty Delivery', 'delivery', { kind: 'delivery' })
+    const { fake, log } = create(config({
+      maintenance: { switch: true, name: 'House Work' },
+      options: { deliveryFaultSensorName: 'Paging Health' },
+    }), [maintenance, delivery])
+
+    fake.launch()
+
+    expect(maintenance.displayNameUpdates).toEqual(['House Work'])
+    expect(delivery.displayNameUpdates).toEqual(['Paging Health'])
+    expect(log.calls).toContain('info Maintenance switch: House Work (renamed from PagerDuty Maintenance); turns off after 240 min')
+    expect(log.calls).toContain('info Delivery sensor: Paging Health (renamed from PagerDuty Delivery)')
+    expect(fake.unregistered).toEqual([])
+    expect(fake.registered.map((accessory) => accessory.displayName)).toEqual(['Zone One Leak'])
     await fake.shutdown()
   })
 
@@ -294,7 +336,7 @@ describe('when configured', () => {
 
     fake.launch()
 
-    expect(log.calls).toContain('info 1 alert(s), 3 accessory(ies) (dry run: nothing is sent)')
+    expect(log.calls.some((line) => /^info Starting v\S+ \(dry run: nothing is sent\): /.test(line))).toBe(true)
     await fake.shutdown()
   })
 
@@ -306,6 +348,7 @@ describe('when configured', () => {
     fake.launch()
 
     expect(log.calls.some((line) => line.startsWith('error saved state could not be loaded: state file could not be read'))).toBe(true)
+    expect(log.calls).not.toContain('info Platform ready')
     expect(fake.registered).toEqual([])
     expect(() => onOf(restored).read()).toThrow(FakeHapStatusError)
   })

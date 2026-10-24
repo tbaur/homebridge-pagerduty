@@ -43,10 +43,12 @@ import type {
   Severity,
 } from './types'
 import {
+  type AccessoryChanges,
   accessoryIdentityKey,
   bindAccessoryContext,
   describeError,
   forLog,
+  formatStartupReport,
   parseAccessoryContext,
   resolveAccessories,
   StateUnreadableError,
@@ -161,12 +163,15 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
     for (const warning of warnings) {
       this.log.warn(warning)
     }
-    this.syncAccessories(accessories, config.heldAlertIds)
+    const changes = this.syncAccessories(accessories, config.heldAlertIds)
+    const report = formatStartupReport({ config, accessories, pluginVersion: this.pluginVersion, changes })
+    for (const line of report) {
+      this.log.info(line)
+    }
     controller.onChange(() => this.refreshAll())
     this.refreshAll()
     this.startDiagnostics()
-    const mode = config.options.dryRun ? ' (dry run: nothing is sent)' : ''
-    this.log.info(`${config.alerts.length} alert(s), ${accessories.length} accessory(ies)${mode}`)
+    this.log.info('Platform ready')
   }
 
   private async stop(): Promise<void> {
@@ -193,8 +198,14 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
    *
    * Accessories of a held alert are neither adopted nor removed: they stay
    * registered and answer No Response until the entry is fixed.
+   *
+   * Returns which accessories were created and which were renamed, for the
+   * startup report.
    */
-  private syncAccessories(resolved: readonly ResolvedAccessory[], heldAlertIds: readonly string[]): void {
+  private syncAccessories(
+    resolved: readonly ResolvedAccessory[],
+    heldAlertIds: readonly string[],
+  ): AccessoryChanges {
     const wanted = new Map(resolved.map((accessory) => [this.uuidFor(accessory), accessory]))
     const stale: PlatformAccessory[] = []
     for (const [uuid, accessory] of this.restored) {
@@ -216,26 +227,30 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
       this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, stale)
     }
     const created: PlatformAccessory[] = []
+    const changes = { created: new Set<ResolvedAccessory>(), renamed: new Map<ResolvedAccessory, string>() }
     for (const [uuid, accessory] of wanted) {
       const existing = this.restored.get(uuid)
-      if (existing === undefined) {
-        this.log.info(`adding ${forLog(accessory.name)}`)
-      }
       const platformAccessory = existing ?? new this.api.platformAccessory(accessory.name, uuid)
-      this.adopt(platformAccessory, accessory)
+      const oldName = this.adopt(platformAccessory, accessory)
       if (existing === undefined) {
         created.push(platformAccessory)
+        changes.created.add(accessory)
+      } else if (oldName !== undefined) {
+        changes.renamed.set(accessory, oldName)
       }
     }
     if (created.length > 0) {
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, created)
     }
+    return changes
   }
 
-  private adopt(accessory: PlatformAccessory, resolved: ResolvedAccessory): void {
+  /** Returns the previous name when the accessory had to be renamed. */
+  private adopt(accessory: PlatformAccessory, resolved: ResolvedAccessory): string | undefined {
     const context = bindAccessoryContext(accessory, resolved)
-    if (accessory.displayName !== resolved.name) {
-      this.log.info(`${forLog(accessory.displayName)} is now named ${forLog(resolved.name)}`)
+    const oldName = accessory.displayName
+    const isRenamed = oldName !== resolved.name
+    if (isRenamed) {
       // Assigning `displayName` only changes the wrapper. Homebridge publishes
       // and restores the HAP accessory's name, so a cached tile keeps the old
       // one until `updateDisplayName` writes both.
@@ -243,6 +258,7 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
     }
     this.restored.set(accessory.UUID, accessory)
     this.attachHandler(accessory, context, false)
+    return isRenamed ? oldName : undefined
   }
 
   /** Attach a handler to a cached accessory without touching its identity. */

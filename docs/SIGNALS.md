@@ -13,7 +13,7 @@ The signal store lets another Homebridge plugin page through this one. The other
 This plugin ignores every other plugin until you list it. To list one:
 
 1. In the Homebridge UI, open this plugin's settings.
-2. Under **Signal Store**, add the other plugin's npm package name to **Signal Sources**, for example `homebridge-example`. In `config.json`, this is the `signals.sources` list.
+2. Under **Other Plugins**, add the other plugin's npm package name to **Signal Sources**, for example `homebridge-example`. In `config.json`, this is the `signals.sources` list.
 3. Save, then restart Homebridge.
 
 The other plugin's documentation gives its package name. If a plugin writes to the store before you list it, this plugin logs its name once after each restart:
@@ -36,9 +36,11 @@ Each condition that the plugin reports becomes its own PagerDuty alert. The othe
 
 You can tie a condition to an alert that you configure. The alert's switch then follows the condition, and you choose the name, the title and whether it pages during maintenance.
 
-1. Add an alert with exactly one level.
-2. Set its **Signal** field to `<package>/<signal>`, for example `homebridge-example/sump-high`. The other plugin's documentation lists its signal names.
-3. Make sure the package is also in Signal Sources. If it is not, the plugin logs a `warn` at startup.
+1. List the package in Signal Sources, as described above. The settings screen shows the **Follow Signal** field only after that.
+2. Add an alert with exactly one level.
+3. Set its **Follow Signal** field to `<package>/<signal>`, for example `homebridge-example/sump-high`. The other plugin's documentation lists its signal names.
+
+If the package is not in Signal Sources, the plugin logs a `warn` at startup and the alert does not follow the signal.
 
 An alert set up this way is called a bound alert. [Bound alerts](#bound-alerts) describes exactly how it behaves.
 

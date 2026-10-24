@@ -12,7 +12,7 @@
  * and knows which ones are free to change. See docs/EVENTS-API.md.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MAX_DIAGNOSTICS_INTERVAL_SEC = exports.MIN_DIAGNOSTICS_INTERVAL_SEC = exports.DEFAULT_DIAGNOSTICS_INTERVAL_SEC = exports.DEFAULT_SOURCE = exports.MAX_MAINTENANCE_MAX_MINUTES = exports.MIN_MAINTENANCE_MAX_MINUTES = exports.DEFAULT_MAINTENANCE_MAX_MINUTES = exports.MAX_RESOLVE_AFTER_MINUTES = exports.MAX_LOG_FIELD_LENGTH = exports.MAX_NAME_LENGTH = exports.MAX_SUMMARY_LENGTH = exports.MAX_LEVELS = exports.MAX_ALERTS = exports.MAX_FOREIGN_WRITERS_LISTED = exports.MAX_SIGNAL_ROWS = exports.READER_BUSY_TIMEOUT_MS = exports.SIGNAL_STORE_FAULT_AFTER_MS = exports.SIGNAL_POLL_MS = exports.DELIVERY_HEALTH_TICK_MS = exports.OUTAGE_REWARN_MS = exports.MAX_RETRY_AFTER_MS = exports.BACKOFF_MAX_MS = exports.BACKOFF_BASE_MS = exports.RATE_LIMIT_BACKOFF_BASE_MS = exports.DELIVERY_FAULT_AFTER_MS = exports.MAX_RESPONSE_BYTES = exports.REQUEST_TIMEOUT_MS = exports.CONNECT_TIMEOUT_MS = exports.PRIVATE_DIR_MODE = exports.PRIVATE_FILE_MODE = exports.SIGNAL_STORE_FILE_NAME = exports.STATE_FILE_NAME = exports.DATA_DIR_NAME = exports.EVENTS_URLS = exports.EVENT_GROUP = exports.EVENT_CLIENT = exports.MANUFACTURER = exports.UNKNOWN_PLUGIN_VERSION = exports.UUID_PREFIX = exports.PLATFORM_NAME = exports.PLUGIN_NAME = void 0;
+exports.MAX_DIAGNOSTICS_INTERVAL_SEC = exports.MIN_DIAGNOSTICS_INTERVAL_SEC = exports.DEFAULT_DIAGNOSTICS_INTERVAL_SEC = exports.DEFAULT_SOURCE = exports.MAX_MAINTENANCE_MAX_MINUTES = exports.MIN_MAINTENANCE_MAX_MINUTES = exports.DEFAULT_MAINTENANCE_MAX_MINUTES = exports.MAX_RESOLVE_AFTER_MINUTES = exports.MAX_LOG_FIELD_LENGTH = exports.DEFAULT_DELIVERY_SENSOR_NAME = exports.DEFAULT_MAINTENANCE_NAME = exports.MAX_NAME_LENGTH = exports.MAX_SUMMARY_LENGTH = exports.MAX_LEVELS = exports.MAX_ALERTS = exports.MAX_FOREIGN_WRITERS_LISTED = exports.MAX_SIGNAL_ROWS = exports.READER_BUSY_TIMEOUT_MS = exports.SIGNAL_STORE_FAULT_AFTER_MS = exports.SIGNAL_POLL_MS = exports.DELIVERY_HEALTH_TICK_MS = exports.OUTAGE_REWARN_MS = exports.MAX_RETRY_AFTER_MS = exports.BACKOFF_MAX_MS = exports.BACKOFF_BASE_MS = exports.RATE_LIMIT_BACKOFF_BASE_MS = exports.DELIVERY_FAULT_AFTER_MS = exports.MAX_RESPONSE_BYTES = exports.REQUEST_TIMEOUT_MS = exports.CONNECT_TIMEOUT_MS = exports.PRIVATE_DIR_MODE = exports.PRIVATE_FILE_MODE = exports.SIGNAL_STORE_FILE_NAME = exports.STATE_FILE_NAME = exports.DATA_DIR_NAME = exports.EVENTS_URLS = exports.EVENT_GROUP = exports.EVENT_CLIENT = exports.MANUFACTURER = exports.UNKNOWN_PLUGIN_VERSION = exports.UUID_PREFIX = exports.PLATFORM_NAME = exports.PLUGIN_NAME = void 0;
 exports.readPluginVersion = readPluginVersion;
 /** npm package name. Must match `package.json` `name` for Homebridge to load us. */
 exports.PLUGIN_NAME = 'homebridge-pagerduty';
@@ -120,6 +120,9 @@ exports.MAX_LEVELS = 4;
 exports.MAX_SUMMARY_LENGTH = 1_024;
 /** Longest accepted HomeKit display name. */
 exports.MAX_NAME_LENGTH = 64;
+/** HomeKit names used until the user sets their own. */
+exports.DEFAULT_MAINTENANCE_NAME = 'PagerDuty Maintenance';
+exports.DEFAULT_DELIVERY_SENSOR_NAME = 'PagerDuty Delivery';
 /** Longest untrusted string interpolated into a log line. */
 exports.MAX_LOG_FIELD_LENGTH = 100;
 /** Resolve timer range, minutes. 0 is off; the top is one week. */

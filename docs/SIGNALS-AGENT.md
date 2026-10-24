@@ -9,7 +9,7 @@ The examples use `homebridge-example`. Use the plugin's real package name from i
 - homebridge-pagerduty reads a SQLite file in the Homebridge storage directory. Other plugins write rows to it.
 - Each row is one condition that a person should know about, called a signal, such as `sump-high`.
 - While a row has `active = 1`, homebridge-pagerduty keeps a PagerDuty alert open for it. When the row changes to `active = 0`, it resolves the alert.
-- homebridge-pagerduty ignores every row until the user adds the writing plugin's package name to its `signals.sources` setting (**Signal Sources** in its settings screen). The writing plugin cannot change that setting, and must not try.
+- homebridge-pagerduty ignores every row until the user adds the writing plugin's package name to its `signals.sources` setting (**Signal Sources**, under **Other Plugins** in its settings screen). The writing plugin cannot change that setting, and must not try.
 - A user can also tie one of their configured alerts to a signal with `"signal": "homebridge-example/sump-high"`. The alert's HomeKit switch then follows the row.
 - homebridge-pagerduty checks the file every 2 seconds. Only a change to `active` or `severity` sends anything to PagerDuty.
 
@@ -304,7 +304,7 @@ Add this to the plugin's README, with the real signals in the table:
 This plugin can page through [homebridge-pagerduty](https://github.com/tbaur/homebridge-pagerduty) when something needs attention. It needs Node 22.13 or later.
 
 1. Turn on **Send Signals to PagerDuty** (`pagerdutySignals`) in this plugin's settings.
-2. In homebridge-pagerduty's settings, add `homebridge-example` to **Signal Sources**.
+2. In homebridge-pagerduty's settings, open **Other Plugins** and add `homebridge-example` to **Signal Sources**.
 3. Restart Homebridge.
 
 Each condition below then opens a PagerDuty alert while it is present, and resolves it when it clears.
@@ -313,7 +313,7 @@ Each condition below then opens a PagerDuty alert while it is present, and resol
 | --- | --- | --- |
 | `sump-high` | error | The sump water level is above the alarm line |
 
-To give a condition its own HomeKit switch, add an alert in homebridge-pagerduty with one level and set its **Signal** field, for example `homebridge-example/sump-high`.
+To give a condition its own HomeKit switch, add an alert in homebridge-pagerduty with one level and set its **Follow Signal** field, for example `homebridge-example/sump-high`.
 ```
 
 ## Done when

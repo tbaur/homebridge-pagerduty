@@ -28,5 +28,6 @@ __exportStar(require("./errors"), exports);
 __exportStar(require("./redact"), exports);
 __exportStar(require("./retry-after"), exports);
 __exportStar(require("./serial"), exports);
+__exportStar(require("./startup-report"), exports);
 __exportStar(require("./timing"), exports);
 __exportStar(require("./validators"), exports);
