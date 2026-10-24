@@ -14,7 +14,7 @@
 import { signalRefKey } from '../signals/schema'
 import type { ResolvedAlert, Severity, SignalRow } from '../types'
 import type { PersistedState } from './model'
-import { levelKey } from './model'
+import { isSignalSwitchOn, levelKey } from './model'
 
 const MINUTE_MS = 60_000
 
@@ -117,9 +117,9 @@ export interface RowsUpdate {
   rows: readonly SignalRow[]
   /** False when the read hit its cap, so an absent row may simply be unread. */
   complete: boolean
-  sources: readonly string[]
-  /** Configured alerts bound to a row, by `<plugin>/<signal>`. */
-  boundAlerts: ReadonlyMap<string, ResolvedAlert>
+  allowed: readonly string[]
+  /** Signals that have a switch, by `<plugin>/<signal>`. */
+  switches: ReadonlySet<string>
   now: number
 }
 
@@ -135,14 +135,17 @@ export interface RowsResult {
  * Fold a successful read of the signal store into state.
  *
  * A row changes only when `active` or `severity` changes; an `updated_at`
- * change alone is not a change. A changed bound row drives its alert's switch,
- * and the last change wins. A row that has gone counts as cleared, but only
- * after a read that is known to be complete.
+ * change alone is not a change. A changed row sets its signal's switch, and
+ * the last change wins over a person's. A row that has gone counts as cleared,
+ * but only after a read that is known to be complete.
  */
 export function applyRows(state: PersistedState, update: RowsUpdate): RowsResult {
   const result: RowsResult = { changed: [], dirty: false }
   const present = new Set<string>()
   for (const row of update.rows) {
+    if (!update.allowed.includes(row.plugin)) {
+      continue
+    }
     const key = signalRefKey(row)
     present.add(key)
     const previous = state.rowsSeen[key]
@@ -155,7 +158,7 @@ export function applyRows(state: PersistedState, update: RowsUpdate): RowsResult
     }
     const changedAt = row.updatedAt > 0 && row.updatedAt <= update.now ? row.updatedAt : update.now
     state.rowsSeen[key] = { active: row.active, severity: row.severity, summary: row.summary, changedAt }
-    driveBoundAlert({ state, alert: update.boundAlerts.get(key), on: row.active, at: changedAt })
+    driveSwitch({ state, update, key, on: row.active, at: changedAt })
     result.changed.push(key)
     result.dirty = true
   }
@@ -173,41 +176,52 @@ function clearMissingRows(
 ): void {
   for (const [key, seen] of Object.entries(state.rowsSeen)) {
     const plugin = key.slice(0, key.lastIndexOf('/'))
-    if (present.has(key) || !seen.active || !update.sources.includes(plugin)) {
+    if (present.has(key) || !seen.active || !update.allowed.includes(plugin)) {
       continue
     }
     state.rowsSeen[key] = { ...seen, active: false, changedAt: update.now }
-    driveBoundAlert({ state, alert: update.boundAlerts.get(key), on: false, at: update.now })
+    driveSwitch({ state, update, key, on: false, at: update.now })
     result.changed.push(key)
     result.dirty = true
   }
 }
 
-function driveBoundAlert(input: {
-  state: PersistedState
-  alert: ResolvedAlert | undefined
-  on: boolean
-  at: number
-}): void {
-  const level = input.alert?.levels[0]
-  if (input.alert === undefined || level === undefined) {
-    return
+function driveSwitch(input: { state: PersistedState; update: RowsUpdate; key: string; on: boolean; at: number }): void {
+  if (input.update.switches.has(input.key)) {
+    input.state.switches[input.key] = { on: input.on, changedAt: input.at }
   }
-  applyLevelWrite(input.state, input.alert, { severity: level.severity, on: input.on, at: input.at })
+}
+
+/** A person set a signal switch. Returns true when it changed. */
+export function applySignalSwitchWrite(state: PersistedState, refKey: string, write: { on: boolean; at: number }): boolean {
+  if (isSignalSwitchOn(state, refKey) === write.on) {
+    return false
+  }
+  state.switches[refKey] = { on: write.on, changedAt: write.at }
+  return true
 }
 
 /**
- * Drop remembered rows from packages that are no longer allowed.
+ * Drop remembered rows from plugins that are no longer allowed, and switch
+ * state for signals that no longer have a switch.
  *
- * Their delivered records stay, so the reconciler still resolves anything
- * they had open. Only the memory of the row goes.
+ * Delivered records stay, so the reconciler still resolves anything that was
+ * open. Only the memory of the row or switch goes.
  */
-export function pruneRows(state: PersistedState, sources: readonly string[]): boolean {
+export function pruneSignals(
+  state: PersistedState,
+  keep: { allowed: readonly string[]; switches: ReadonlySet<string> },
+): boolean {
   let changed = false
   for (const key of Object.keys(state.rowsSeen)) {
-    const plugin = key.slice(0, key.lastIndexOf('/'))
-    if (!sources.includes(plugin)) {
+    if (!keep.allowed.includes(key.slice(0, key.lastIndexOf('/')))) {
       delete state.rowsSeen[key]
+      changed = true
+    }
+  }
+  for (const key of Object.keys(state.switches)) {
+    if (!keep.switches.has(key)) {
+      delete state.switches[key]
       changed = true
     }
   }

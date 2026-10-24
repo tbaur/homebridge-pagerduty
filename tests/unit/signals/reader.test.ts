@@ -39,7 +39,7 @@ afterEach(() => {
 })
 
 function reader(options: Partial<ConstructorParameters<typeof SignalReader>[0]> = {}): SignalReader {
-  const created = new SignalReader({ path, sources: ['homebridge-example'], log: fakeLogger(), ...options })
+  const created = new SignalReader({ path, allowed: ['homebridge-example'], log: fakeLogger(), ...options })
   readers.push(created)
   return created
 }
@@ -78,7 +78,7 @@ describe('SignalReader', () => {
     const subject = reader()
     subject.create()
 
-    expect(rowsOf(subject.poll())).toEqual({ kind: 'rows', rows: [], complete: true, foreignWriters: [], invalidRows: 0 })
+    expect(rowsOf(subject.poll())).toEqual({ kind: 'rows', rows: [], complete: true, catalog: [], invalidRows: 0 })
     if (process.platform !== 'win32') {
       expect(statSync(path).mode & 0o777).toBe(0o600)
     }
@@ -121,15 +121,33 @@ describe('SignalReader', () => {
     expect(rowsOf(subject.poll()).rows.map((row) => row.signal)).toEqual(['sump-high'])
   })
 
-  it('applies the allowlist in the query and names other writers', () => {
+  it('applies the allowlist in the query, and lists every plugin\'s signals except its own', () => {
     const subject = reader()
     subject.create()
-    write([{ signal: 'door', active: 1 }, { plugin: 'homebridge-other', signal: 'x', active: 1 }])
+    write([
+      { signal: 'door', active: 1 },
+      { plugin: 'homebridge-other', signal: 'x', active: 0, summary: 'Other text' },
+      { plugin: 'homebridge-pagerduty', signal: 'self', active: 1 },
+    ])
 
     const result = rowsOf(subject.poll())
 
     expect(result.rows.map((row) => row.plugin)).toEqual(['homebridge-example'])
-    expect(result.foreignWriters).toEqual(['homebridge-other'])
+    expect(result.catalog).toEqual([
+      { plugin: 'homebridge-example', signal: 'door', summary: 'Door open' },
+      { plugin: 'homebridge-other', signal: 'x', summary: 'Other text' },
+    ])
+  })
+
+  it('reads only the list of signals when no plugin is allowed', () => {
+    const subject = reader({ allowed: [] })
+    write([{ signal: 'door', active: 1 }])
+
+    const result = rowsOf(subject.poll())
+
+    expect(result.rows).toEqual([])
+    expect(result.complete).toBe(true)
+    expect(result.catalog).toEqual([{ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' }])
   })
 
   it('reopens when the file is replaced, instead of reading the deleted one', () => {

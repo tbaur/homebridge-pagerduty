@@ -18,7 +18,7 @@
 
 import type { API, HAP, PlatformAccessory } from 'homebridge'
 
-import type { PluginLogger, Severity } from '../types'
+import type { PluginLogger, Severity, SignalRef } from '../types'
 
 /** Everything an accessory needs from the platform that owns it. */
 export interface AccessoryHost {
@@ -32,6 +32,10 @@ export interface AccessoryHost {
   isLevelOn(alertId: string, severity: Severity): boolean
   /** A HomeKit write to a level switch. Returns once desired state is updated. */
   setLevel(alertId: string, severity: Severity, on: boolean): void
+  /** Whether a signal switch is on: the signal is active, or a person turned it on. */
+  isSignalSwitchOn(signal: SignalRef): boolean
+  /** A HomeKit write to a signal switch. Returns once desired state is updated. */
+  setSignalSwitch(signal: SignalRef, on: boolean): void
   isMaintenanceOn(): boolean
   setMaintenance(on: boolean): void
   /** True when pages are not going out. */

@@ -150,7 +150,7 @@ describe('reference writer', () => {
     }
 
     const storeFile = join(dir, DATA_DIR_NAME, SIGNAL_STORE_FILE_NAME)
-    reader = new SignalReader({ path: storeFile, sources: ['homebridge-example'], log: fakeLogger() })
+    reader = new SignalReader({ path: storeFile, allowed: ['homebridge-example'], log: fakeLogger() })
     const result = reader.poll()
 
     expect(result.kind).toBe('rows')

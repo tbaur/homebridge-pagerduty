@@ -1,8 +1,8 @@
 # Signal store
 
-The signal store lets another Homebridge plugin page through this one. The other plugin writes one row for each condition it watches, such as "sump water is high", to a small SQLite file. This plugin reads the file and turns each row into a PagerDuty alert. No Apple Home automation is needed.
+The signal store lets another Homebridge plugin page through this one. The other plugin writes one row for each condition it watches, such as "sump water is high", to a small SQLite file. This plugin reads the file and turns each row into a PagerDuty alert. No Apple Home automation is needed, and the settings screen lists each plugin and its signals by itself.
 
-- **You use PagerDuty with Homebridge:** read [For users](#for-users). It explains how to let a plugin page you, and what happens when it does.
+- **You use PagerDuty with Homebridge:** read [For users](#for-users). It explains how to let a plugin page you, what you can change for each signal, and what happens when it pages.
 - **You write a Homebridge plugin and want it to page people:** read [For plugin developers](#for-plugin-developers). It has the file location, the table definition, the rules and code that you can copy.
 - **You want a coding agent to add signal support to your plugin:** point it at [SIGNALS-AGENT.md](SIGNALS-AGENT.md). That file has everything an agent needs, including a tested module to copy.
 
@@ -10,43 +10,61 @@ The signal store lets another Homebridge plugin page through this one. The other
 
 ### Let a plugin page
 
-This plugin ignores every other plugin until you list it. To list one:
+Plugins that support homebridge-pagerduty appear on this plugin's settings screen by themselves. This plugin ignores every one of them until you allow it.
 
-1. In the Homebridge UI, open this plugin's settings.
-2. Under **Other Plugins**, add the other plugin's npm package name to **Signal Sources**, for example `homebridge-example`. In `config.json`, this is the `signals.sources` list.
-3. Save, then restart Homebridge.
+1. Turn on PagerDuty support in the other plugin, as its documentation describes, and restart Homebridge.
+2. In the Homebridge UI, open this plugin's settings. Under **Plugin Signals**, each plugin that has written to the store has its own section, with one entry for each of its signals.
+3. Check **Allow this plugin to page**, look over each signal's settings, then save and restart Homebridge.
 
-The other plugin's documentation gives its package name. If a plugin writes to the store before you list it, this plugin logs its name once after each restart:
+A plugin appears only after it has written to the store and this plugin has started since then. Until you allow it, this plugin logs its name once after each restart:
 
 ```text
-signal store: homebridge-example writes signals but is not in signals.sources; ignored
+signal store: homebridge-example writes signals; allow it under Plugin Signals to page for it
 ```
 
-While Signal Sources is empty, the plugin never opens the store.
+### Settings for each signal
 
-### What happens once a plugin is listed
+| Setting | What it does |
+|---|---|
+| **Page for this signal** | On by default. Turn it off to stop this one signal from paging. |
+| **PagerDuty Message** | The text sent to PagerDuty when the plugin raises this signal. It starts as the plugin's own text, and you can change it. Leave it blank to use whatever text the plugin writes. |
+| **Severity** | **Set by the plugin** by default. Pick a severity to always page at that level instead. |
+| **Page During Maintenance** | Page even while the maintenance switch is on. Shown only when the maintenance switch is turned on. |
+| **Create HomeKit Switch** | Adds a switch to HomeKit for this signal. See [Signal switches](#signal-switches). |
+| **Switch Name** | The name that HomeKit shows. Shown only when Create HomeKit Switch is checked. You can rename it at any time, and it keeps its room and automations. |
 
-Each condition that the plugin reports becomes its own PagerDuty alert. The other plugin chooses the alert's title and severity. These alerts have no HomeKit switch.
+In `config.json`, these settings sit under `signals`, keyed by package name. A scoped package such as `@scope/homebridge-x` is stored as `@scope:homebridge-x`, because the settings screen cannot handle a `/` in a key.
 
-- When the condition clears, the alert resolves.
-- While the maintenance switch is on, these alerts are held like any other new page. If the condition is still present when maintenance ends, the alert is sent then.
-- If you remove a plugin from Signal Sources, its open alerts resolve.
+```json
+"signals": {
+  "homebridge-example": {
+    "allow": true,
+    "signals": {
+      "cloud-offline": { "enabled": true, "summary": "Example cloud is down", "severity": "plugin", "bypassMaintenance": true, "switch": true, "switchName": "Example Cloud" }
+    }
+  }
+}
+```
 
-### Give a condition its own switch
+A signal that an allowed plugin starts writing after you saved the settings pages with the defaults, as if you had left every setting alone.
 
-You can tie a condition to an alert that you configure. The alert's switch then follows the condition, and you choose the name, the title and whether it pages during maintenance.
+### What happens once a plugin is allowed
 
-1. List the package in Signal Sources, as described above. The settings screen shows the **Follow Signal** field only after that.
-2. Add an alert with exactly one level.
-3. Set its **Follow Signal** field to `<package>/<signal>`, for example `homebridge-example/sump-high`. The other plugin's documentation lists its signal names. The Homebridge log also lists them at startup, in a line such as `Signals from homebridge-example: flood, sump-high`.
+- While a signal is active, its PagerDuty alert is open. When it clears, the alert resolves.
+- While the maintenance switch is on, new pages are held unless the signal has Page During Maintenance. If the signal is still active when maintenance ends, the page is sent then.
+- If you turn off Page for this signal, or uncheck Allow this plugin to page, anything it had open resolves.
 
-If the package is not in Signal Sources, the plugin logs a `warn` at startup and the alert does not follow the signal.
+### Signal switches
 
-An alert set up this way is called a bound alert. [Bound alerts](#bound-alerts) describes exactly how it behaves.
+A signal switch shows the signal in the Home app, and lets you test it.
 
-### What the list protects against
+- The switch is on while the signal is active, and turns off when it clears.
+- Turning the switch on by hand pages with the signal's settings. Turning it off resolves the alert.
+- Whichever changed last wins. A person can flip the switch, and it stays that way until the plugin next changes the signal.
 
-Signal Sources is about consent. It stops a plugin from paging your on-call people unless you asked it to. It does not stop harmful code: any program that runs as the Homebridge user can write to the store under any package name. That program could also read your integration key from `config.json`. List only plugins that you trust. See [Security](#security).
+### What allowing a plugin protects against
+
+Allow this plugin to page is about consent. It stops a plugin from paging your on-call people unless you asked it to. It does not stop harmful code: any program that runs as the Homebridge user can write to the store under any package name. That program could also read your integration key from `config.json`. Allow only plugins that you trust. See [Security](#security).
 
 ## For plugin developers
 
@@ -55,7 +73,7 @@ Signal Sources is about consent. It stops a plugin from paging your on-call peop
 1. Open the store file at a fixed path in the Homebridge storage directory.
 2. Create the table with the exact SQL below, and check the interface version.
 3. Write one row for each condition: once at startup, then whenever the condition changes.
-4. Tell your users to add your package name to this plugin's `signals.sources` setting. Until they do, this plugin ignores your rows.
+4. Tell your users to check **Allow this plugin to page** for your plugin under **Plugin Signals** in this plugin's settings. Until they do, this plugin ignores your rows.
 
 [SIGNALS-AGENT.md](SIGNALS-AGENT.md) has a ready TypeScript module that does all of this, with the wiring, tests and README text to go with it. It is written for coding agents, and works just as well for people.
 
@@ -98,7 +116,7 @@ Do not change it. `CREATE TABLE IF NOT EXISTS` lets the first process that runs 
 | `signal` | Your name for the condition, such as `sump-high`. Lowercase letters, digits, dot, underscore and hyphen, up to 64 characters. |
 | `active` | `1` while the condition is present. `0` once it has cleared. |
 | `severity` | `info`, `warning`, `error` or `critical`, in lowercase. If the PagerDuty service uses alert severity to set urgency, `critical` and `error` are high urgency, and `warning` and `info` are low. |
-| `summary` | The alert title in PagerDuty, 1 to 1024 characters. |
+| `summary` | The alert title in PagerDuty, 1 to 1024 characters. Users also see it as the starting value of their PagerDuty Message setting, so write text that still reads well if it is saved as a fixed message. |
 | `updated_at` | The time of this write, in Unix milliseconds. PagerDuty shows it as the time that the condition changed. |
 
 The `CHECK` constraints reject a bad value at the moment you write it. The error appears in your plugin, close to the bug.
@@ -185,7 +203,7 @@ In a plugin, pass `api.user.storagePath()` as `storageDir`. The reference writer
 
 ### Try it from a terminal
 
-Against a test Homebridge install, first add `homebridge-example` to Signal Sources. Then:
+Against a test Homebridge install, run the first command once and restart Homebridge, so that `homebridge-example` appears under Plugin Signals. Allow it, save, and restart again. Then:
 
 ```bash
 node scripts/reference-writer.js --storage /path/to/homebridge --plugin homebridge-example --signal door --severity warning --summary "Door open"
@@ -197,7 +215,8 @@ The first command opens an alert, and the second resolves it.
 ### How this plugin reads your rows
 
 - **Every 2 seconds,** it checks whether the file changed. It reads rows only when something did.
-- **It reads only rows from listed plugins,** up to 1000, newest first. Rows from unlisted plugins cannot crowd yours out of the read.
+- **It reads only rows from allowed plugins,** up to 1000, newest first. Rows from other plugins cannot crowd yours out of the read.
+- **It also reads the names and summaries of every plugin's signals,** for the settings screen. That text is only ever a field's starting value.
 - **Only a change to `active` or `severity` sends anything.** A new `updated_at` on its own does not.
 - **A row that fails validation is ignored,** with a `debug` log line.
 - **A read error never resolves an alert.** If the file is missing, locked or damaged, the last rows read stay in force. The plugin logs a `warn` at most once an hour, and its delivery sensor opens after 5 minutes.
@@ -206,7 +225,7 @@ The first command opens an alert, and the second resolves it.
 
 ### What PagerDuty receives
 
-For a row that is not tied to a configured alert:
+With the user's settings left alone:
 
 | Event field | Value |
 |---|---|
@@ -220,18 +239,12 @@ For a row that is not tied to a configured alert:
 
 When `active` goes from `1` to `0`, the plugin sends a `resolve` with the same `dedup_key`. [EVENTS-API.md](EVENTS-API.md) shows a complete event.
 
-### Bound alerts
+### What the user can change
 
-A user can tie one of their configured alerts to your signal with `"signal": "<plugin>/<signal>"`. The alert's switch then follows your row. Whichever changed last wins:
-
-- When your row changes, the switch turns on or off to match, and the alert takes your row's severity.
-- A person can still flip the switch. That sends a `trigger` or `resolve` as usual, and the switch keeps that position until your row next changes. Turning the switch off while your row stays active silences the page.
-- The severity is always the one from the last row seen, even when a person turns the switch on. The configured level's severity applies only until the first row is seen.
-- The alert title is the user's configured `summary`, so it stays the same. Your row's `summary` goes into `custom_details.detail`.
-- A bound alert can have `bypassMaintenance`. That is the only way for a signal to page while the maintenance switch is on.
+The user can change the title and severity of each signal, let it page during maintenance, mute it, or give it a HomeKit switch. See [Settings for each signal](#settings-for-each-signal). When the user sets their own title, your `summary` goes into `custom_details.detail` whenever it differs from that title. The `dedup_key` stays the same whatever the user changes.
 
 ## Security
 
-**Signal Sources is not authentication.** Any process that runs as the Homebridge user can write any `plugin` value. The list stops a well-behaved plugin from paging people who never asked it to. It does not stop harmful code, and it does not need to: code that runs as that user can already read `config.json` and the integration key in it.
+**Allowing a plugin is not authentication.** Any process that runs as the Homebridge user can write any `plugin` value. The setting stops a well-behaved plugin from paging people who never asked it to. It does not stop harmful code, and it does not need to: code that runs as that user can already read `config.json` and the integration key in it.
 
 The plugin creates the `homebridge-pagerduty` directory owner-only (`0700`). It creates the store and its `-wal` and `-shm` files owner-only (`0600`). If it finds them with looser permissions, it tightens them and logs that.

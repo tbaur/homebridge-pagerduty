@@ -13,6 +13,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.formatStartupReport = formatStartupReport;
+const config_1 = require("../signals/config");
 const redact_1 = require("./redact");
 /** Longest signal list printed for one plugin; the rest are counted. */
 const MAX_LISTED_SIGNALS = 20;
@@ -32,13 +33,16 @@ function formatStartupReport(input) {
     for (const id of config.heldAlertIds) {
         lines.push(`Alert switch: ${id} held until its entry is fixed; its switches show No Response`);
     }
-    if (input.signalsWritten !== undefined) {
-        for (const source of config.signalSources) {
-            lines.push(signalLine(source, input.signalsWritten.get(source) ?? [], config));
+    if (input.catalog !== undefined) {
+        for (const [plugin, written] of signalsByPlugin(input.catalog, config)) {
+            lines.push(signalLine(plugin, written, config));
         }
     }
     for (const accessory of accessories) {
-        if (accessory.kind === 'maintenance') {
+        if (accessory.kind === 'signal' && accessory.signal !== undefined) {
+            lines.push(`Signal switch: ${nameOf(accessory, changes)} for ${accessory.signal.plugin}/${accessory.signal.signal}`);
+        }
+        else if (accessory.kind === 'maintenance') {
             lines.push(`Maintenance switch: ${nameOf(accessory, changes)}; turns off after ${config.maintenance.maxMinutes} min`);
         }
         else if (accessory.kind === 'delivery') {
@@ -49,25 +53,34 @@ function formatStartupReport(input) {
 }
 function platformLine({ config, pluginVersion }) {
     const parts = [`region ${config.region.toUpperCase()}`, `source ${config.source}`];
-    if (config.signalSources.length > 0) {
-        parts.push(`signal sources ${config.signalSources.length}`);
+    const allowed = (0, config_1.allowedPlugins)(config).length;
+    if (allowed > 0) {
+        parts.push(`plugins allowed ${allowed}`);
     }
     const mode = config.options.dryRun ? ' (dry run: nothing is sent)' : '';
     return `Starting v${pluginVersion}${mode}: ${parts.join(', ')}`;
 }
-/** What a listed plugin has written, and which of its signals the alerts follow. */
-function signalLine(source, written, config) {
-    const followed = config.alerts.flatMap((alert) => alert.signal?.plugin === source ? [alert.signal.signal] : []);
+/** Signal names by plugin, for every plugin that writes signals or is allowed. */
+function signalsByPlugin(catalog, config) {
+    const grouped = new Map((0, config_1.allowedPlugins)(config).map((plugin) => [plugin, []]));
+    for (const entry of catalog) {
+        grouped.set(entry.plugin, [...grouped.get(entry.plugin) ?? [], entry.signal]);
+    }
+    return new Map([...grouped].sort(([a], [b]) => a.localeCompare(b)));
+}
+/** What a plugin has written, and whether anything it writes can page. */
+function signalLine(plugin, written, config) {
     const parts = [written.length > 0 ? listSignals(written) : 'none written yet'];
-    const followedWritten = followed.filter((name) => written.includes(name));
-    const followedMissing = followed.filter((name) => !written.includes(name));
-    if (followedWritten.length > 0) {
-        parts.push(`followed: ${followedWritten.map(redact_1.forLog).join(', ')}`);
+    if (!(0, config_1.allowedPlugins)(config).includes(plugin)) {
+        parts.push('not allowed, so nothing is paged');
     }
-    if (followedMissing.length > 0) {
-        parts.push(`followed but not written: ${followedMissing.map(redact_1.forLog).join(', ')}`);
+    else {
+        const muted = written.filter((signal) => (0, config_1.signalSettings)(config, { plugin, signal })?.enabled === false);
+        if (muted.length > 0) {
+            parts.push(`muted: ${listSignals(muted)}`);
+        }
     }
-    return `Signals from ${source}: ${parts.join('; ')}`;
+    return `Signals from ${plugin}: ${parts.join('; ')}`;
 }
 function listSignals(names) {
     const listed = names.slice(0, MAX_LISTED_SIGNALS).map(redact_1.forLog).join(', ');

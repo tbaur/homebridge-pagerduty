@@ -11,7 +11,7 @@
 
 import type { PlatformAccessory } from 'homebridge'
 
-import { AlertSwitch, DeliverySensor, MaintenanceSwitch } from '../../../src/devices'
+import { AlertSwitch, DeliverySensor, MaintenanceSwitch, SignalSwitch } from '../../../src/devices'
 import {
   accessoryInit,
   characteristics,
@@ -121,6 +121,36 @@ describe('MaintenanceSwitch', () => {
 
     expect(() => on.read()).toThrow(FakeHapStatusError)
     await expect(on.write(true)).rejects.toThrow(FakeHapStatusError)
+  })
+})
+
+describe('SignalSwitch', () => {
+  const signal = { plugin: 'homebridge-example', signal: 'door' }
+
+  it('reads, writes and publishes its signal through the host', async () => {
+    const host = fakeHost()
+    const init = accessoryInit(host, { displayName: 'Zone Two', model: 'Signal Switch' })
+    const subject = new SignalSwitch({ ...init, signal })
+    const on = init.fake.service('Switch').getCharacteristic(characteristics.On)
+
+    expect(on.read()).toBe(false)
+    await on.write(true)
+    expect(host.writes).toEqual(['signal homebridge-example/door true'])
+    expect(on.read()).toBe(true)
+    subject.refresh()
+    expect(on.value).toBe(true)
+    expect(init.fake.service('AccessoryInformation').lastValue('Model')).toBe('Signal Switch')
+  })
+
+  it('answers No Response and refuses writes when unavailable', async () => {
+    const host = fakeHost()
+    const init = accessoryInit(host, { unavailable: true })
+    new SignalSwitch({ ...init, signal })
+    const on = init.fake.service('Switch').getCharacteristic(characteristics.On)
+
+    expect(() => on.read()).toThrow(FakeHapStatusError)
+    await expect(on.write(true)).rejects.toThrow(FakeHapStatusError)
+    expect(host.writes).toEqual([])
   })
 })
 

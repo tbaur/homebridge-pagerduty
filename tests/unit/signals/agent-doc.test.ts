@@ -79,7 +79,7 @@ describe('docs/SIGNALS-AGENT.md', () => {
     expect(statSync(path).mode & 0o777).toBe(0o600)
     expect(warnings).toEqual([])
 
-    const reader = new SignalReader({ path, sources: ['homebridge-example'], log: fakeLogger() })
+    const reader = new SignalReader({ path, allowed: ['homebridge-example'], log: fakeLogger() })
     reader.create()
     const result = reader.poll()
     reader.close()

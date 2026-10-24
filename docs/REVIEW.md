@@ -10,13 +10,13 @@ This document summarizes how the plugin handles security, reliability, maintaina
 | **Key at rest** | ✅ | The state file stores a SHA-256 fingerprint of the key, used only to detect a key change |
 | **Secret redaction** | ✅ | `redact.ts` redacts key-shaped strings by shape, not by field name, so a PagerDuty error that echoes the key is still covered. Errors never include a URL or a request body |
 | **Log injection** | ✅ | Every value from config or from another plugin passes through `forLog`, which escapes control characters and caps length |
-| **Signal store** | ✅ | In the plugin's owner-only directory (`0700`). Owner-only files (`0600`), tightened if found looser. The `signals.sources` list is applied inside the SQL query. Values are constrained by `CHECK` constraints and validated again on read |
+| **Signal store** | ✅ | In the plugin's owner-only directory (`0700`). Owner-only files (`0600`), tightened if found looser. The list of allowed plugins is applied inside the SQL query. Values are constrained by `CHECK` constraints and validated again on read |
 | **HTTPS only** | ✅ | Two fixed hosts, no redirects followed, connect and total deadlines, response size capped at 64 KiB |
 | **Scripts** | ✅ | The key comes from the environment or a prompt that does not echo. A key passed as a command-line argument is refused and not repeated |
 | **Tests** | ✅ | Test keys are built at runtime, and the suite refuses to run with `PAGERDUTY_ROUTING_KEY` set. CI rejects credential-shaped strings in docs and source |
 | **npm audit / CI** | ✅ | Runtime audit and OSV scan in CI |
 
-**Residual risk:** Homebridge stores the integration key in plain text in `config.json`. Anyone who can read that file can page the people on call for the service. The signal store's `signals.sources` list is not authentication: any process running as the Homebridge user can write a row under any package name. That process could already read the key.
+**Residual risk:** Homebridge stores the integration key in plain text in `config.json`. Anyone who can read that file can page the people on call for the service. Allowing a plugin to page is not authentication: any process running as the Homebridge user can write a row under any package name. That process could already read the key.
 
 ## Reliability
 

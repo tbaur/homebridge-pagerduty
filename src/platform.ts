@@ -26,11 +26,13 @@ import {
   AlertSwitch,
   DeliverySensor,
   MaintenanceSwitch,
+  SignalSwitch,
   type AccessoryHost,
   type AccessoryInit,
   type BaseAccessory,
 } from './devices'
 import { DiagnosticsCollector } from './diagnostics/collector'
+import { DynamicSchemaWriter } from './dynamic-schema'
 import { formatDiagnosticLine, formatHealthTransitionLine } from './diagnostics/format'
 import { PLATFORM_NAME, PLUGIN_NAME, readPluginVersion, UUID_PREFIX } from './settings'
 import type {
@@ -41,6 +43,7 @@ import type {
   ResolvedAccessory,
   ResolvedConfig,
   Severity,
+  SignalRef,
 } from './types'
 import {
   type AccessoryChanges,
@@ -66,6 +69,7 @@ const runningInstances = new WeakSet<API>()
 
 const MODELS: Record<AccessoryContext['kind'], string> = {
   alert: 'Alert Switch',
+  signal: 'Signal Switch',
   maintenance: 'Maintenance Switch',
   delivery: 'Delivery Sensor',
 }
@@ -85,6 +89,8 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
   private readonly diagnostics: DiagnosticsCollector
 
   private controller: AlertController | undefined
+
+  private schemaWriter: DynamicSchemaWriter | undefined
 
   private config: ResolvedConfig | undefined
 
@@ -158,6 +164,7 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
       return
     }
     this.controller = controller
+    this.startSettingsScreen(controller, config)
     const warnings: string[] = []
     const accessories = resolveAccessories(config, warnings)
     for (const warning of warnings) {
@@ -169,7 +176,7 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
       accessories,
       pluginVersion: this.pluginVersion,
       changes,
-      signalsWritten: controller.signalsWritten(),
+      catalog: controller.signalCatalog(),
     })
     for (const line of report) {
       this.log.info(line)
@@ -180,6 +187,17 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
     this.log.info('Platform ready')
   }
 
+  /** Keep the Plugin Signals section of the settings screen in line with the signal store. */
+  private startSettingsScreen(controller: AlertController, config: ResolvedConfig): void {
+    const writer = new DynamicSchemaWriter({ storageDir: this.api.user.storagePath(), log: this.log })
+    this.schemaWriter = writer
+    const write = (): void => {
+      void writer.write({ catalog: controller.signalCatalog() ?? [], signalPlugins: config.signalPlugins })
+    }
+    controller.onCatalogChange(write)
+    write()
+  }
+
   private async stop(): Promise<void> {
     this.stopDiagnostics()
     for (const handler of this.handlers.values()) {
@@ -187,6 +205,7 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
     }
     this.handlers.clear()
     await this.controller?.stop()
+    await this.schemaWriter?.flush()
   }
 
   /** Keep cached accessories registered, answering No Response. */
@@ -284,9 +303,7 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
       serialNumber: context.serialNumber,
       unavailable,
     }
-    const handler = context.kind === 'alert' && context.alertId !== undefined && context.severity !== undefined
-      ? new AlertSwitch({ ...init, alertId: context.alertId, severity: context.severity })
-      : context.kind === 'maintenance' ? new MaintenanceSwitch(init) : new DeliverySensor(init)
+    const handler = createHandler(init, context)
     this.handlers.get(accessory.UUID)?.stop()
     this.handlers.set(accessory.UUID, handler)
   }
@@ -314,6 +331,14 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
 
   setLevel(alertId: string, severity: Severity, on: boolean): void {
     this.controller?.setLevel(alertId, severity, on)
+  }
+
+  isSignalSwitchOn(signal: SignalRef): boolean {
+    return this.controller?.isSignalSwitchOn(signal) ?? false
+  }
+
+  setSignalSwitch(signal: SignalRef, on: boolean): void {
+    this.controller?.setSignalSwitch(signal, on)
   }
 
   isMaintenanceOn(): boolean {
@@ -381,4 +406,15 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
       this.log[level](JSON.stringify(report))
     }
   }
+}
+
+/** `parseAccessoryContext` guarantees the identity fields for its kind. */
+function createHandler(init: AccessoryInit, context: AccessoryContext): BaseAccessory {
+  if (context.kind === 'alert' && context.alertId !== undefined && context.severity !== undefined) {
+    return new AlertSwitch({ ...init, alertId: context.alertId, severity: context.severity })
+  }
+  if (context.kind === 'signal' && context.signal !== undefined) {
+    return new SignalSwitch({ ...init, signal: context.signal })
+  }
+  return context.kind === 'maintenance' ? new MaintenanceSwitch(init) : new DeliverySensor(init)
 }

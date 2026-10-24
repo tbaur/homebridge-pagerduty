@@ -21,6 +21,7 @@ const events_1 = require("./delivery/events");
 const http_1 = require("./delivery/http");
 const sender_1 = require("./delivery/sender");
 const settings_1 = require("./settings");
+const config_1 = require("./signals/config");
 const schema_1 = require("./signals/schema");
 const reader_1 = require("./signals/reader");
 const desired_1 = require("./state/desired");
@@ -41,8 +42,11 @@ class AlertController {
     sender;
     health = new health_1.DeliveryHealth();
     alertsById = new Map();
-    boundAlerts = new Map();
+    allowed;
+    /** Signals with a switch, by `<plugin>/<signal>`. */
+    switches = new Map();
     listeners = [];
+    catalogListeners = [];
     abort = new AbortController();
     knownForeignWriters = new Set();
     outageGapKeys = new Set();
@@ -51,7 +55,8 @@ class AlertController {
     fault = false;
     reader;
     storeUnreadableSince = null;
-    writtenSignals;
+    catalog;
+    catalogNames = '';
     lastStoreWarnAt = 0;
     pendingRowSweep = false;
     started = false;
@@ -64,9 +69,10 @@ class AlertController {
         this.now = options.now ?? Date.now;
         for (const alert of this.config.alerts) {
             this.alertsById.set(alert.id, alert);
-            if (alert.signal !== undefined) {
-                this.boundAlerts.set((0, schema_1.signalRefKey)(alert.signal), alert);
-            }
+        }
+        this.allowed = (0, config_1.allowedPlugins)(this.config);
+        for (const signal of (0, config_1.signalSwitches)(this.config)) {
+            this.switches.set((0, schema_1.signalRefKey)(signal), signal);
         }
         this.store = options.store ?? new store_1.StateStore({
             path: (0, node_path_1.join)(options.storageDir, settings_1.DATA_DIR_NAME, settings_1.STATE_FILE_NAME),
@@ -102,9 +108,9 @@ class AlertController {
         this.warnAboutKeyChange((0, mutations_1.applyKeyChange)(state, (0, store_1.fingerprintRoutingKey)(this.config.routingKey)));
         if (loaded.outcome === 'corrupt') {
             this.sweepClosedAlerts();
-            this.pendingRowSweep = this.config.signalSources.length > 0;
+            this.pendingRowSweep = this.allowed.length > 0;
         }
-        (0, mutations_1.pruneRows)(state, this.config.signalSources);
+        (0, mutations_1.pruneSignals)(state, { allowed: this.allowed, switches: new Set(this.switches.keys()) });
         this.forgetRemovedAlerts();
         if (state.maintenance.on && !this.config.maintenance.switch) {
             (0, mutations_1.applyMaintenance)(state, { on: false, at: this.now(), maxMinutes: this.config.maintenance.maxMinutes });
@@ -173,6 +179,23 @@ class AlertController {
         this.scheduleDeadline();
         this.kick();
     }
+    isSignalSwitchOn(ref) {
+        return (0, model_1.isSignalSwitchOn)(this.requireState(), (0, schema_1.signalRefKey)(ref));
+    }
+    /** A signal switch write. Pages or resolves with the signal's settings. */
+    setSignalSwitch(ref, on) {
+        const key = (0, schema_1.signalRefKey)(ref);
+        const signal = this.switches.get(key);
+        if (signal === undefined || this.stopped) {
+            return;
+        }
+        if (!(0, mutations_1.applySignalSwitchWrite)(this.requireState(), key, { on, at: this.now() })) {
+            return;
+        }
+        this.log.info(`${(0, redact_1.forLog)(signal.switchName)}: switched ${on ? 'on' : 'off'}`);
+        this.persist();
+        this.kick();
+    }
     isDeliveryFault() {
         return this.fault;
     }
@@ -184,7 +207,7 @@ class AlertController {
             heldByMaintenance: this.plan.heldByMaintenance.length,
             rejected: this.plan.rejected.length,
             deliveryFault: this.fault,
-            storeOk: this.config.signalSources.length === 0 ? null : this.storeUnreadableSince === null,
+            storeOk: this.allowed.length === 0 ? null : this.storeUnreadableSince === null,
             outage: this.sender.inOutage,
         };
     }
@@ -344,31 +367,40 @@ class AlertController {
         }
     }
     // --- Signal store ----------------------------------------------------------------
+    /**
+     * The store is polled even when no plugin is allowed, because the settings
+     * screen lists every plugin that writes to it. It is created only when a
+     * plugin is allowed, and a missing or broken store is a fault only then.
+     */
     startSignals() {
-        if (this.config.signalSources.length === 0) {
-            return;
-        }
         const path = (0, node_path_1.join)(this.options.storageDir, settings_1.DATA_DIR_NAME, settings_1.SIGNAL_STORE_FILE_NAME);
         const create = this.options.createReader
-            ?? ((file, sources) => new reader_1.SignalReader({ path: file, sources, log: this.log }));
-        this.reader = create(path, this.config.signalSources);
-        try {
-            this.reader.create();
-        }
-        catch (error) {
-            this.noteStoreUnavailable((0, errors_1.describeError)(error));
+            ?? ((file, allowed) => new reader_1.SignalReader({ path: file, allowed, log: this.log }));
+        this.reader = create(path, this.allowed);
+        if (this.allowed.length > 0) {
+            try {
+                this.reader.create();
+            }
+            catch (error) {
+                this.noteStoreUnavailable((0, errors_1.describeError)(error));
+            }
         }
         this.pollSignals();
         this.timers.poll = setInterval(() => this.pollSignals(), settings_1.SIGNAL_POLL_MS);
         this.timers.poll.unref();
     }
     /**
-     * The signal names each listed plugin had written at the last read, or
-     * undefined when the store has not been read. A store that does not exist
-     * yet reads as empty.
+     * Every plugin's signals at the last read, for the settings screen and the
+     * startup report. Undefined when the store has not been read. A store that
+     * does not exist yet reads as empty. The text is the other plugin's and is
+     * untrusted.
      */
-    signalsWritten() {
-        return this.writtenSignals;
+    signalCatalog() {
+        return this.catalog;
+    }
+    /** Called when a plugin or signal appears in the store or leaves it. */
+    onCatalogChange(listener) {
+        this.catalogListeners.push(listener);
     }
     pollSignals() {
         const result = this.reader?.poll();
@@ -377,22 +409,43 @@ class AlertController {
         }
         if (result.kind === 'unavailable') {
             if (result.reason === 'missing') {
-                this.writtenSignals = new Map();
+                this.updateCatalog([]);
             }
-            this.noteStoreUnavailable(result.reason);
+            if (this.allowed.length > 0) {
+                this.noteStoreUnavailable(result.reason);
+            }
+            else if (result.reason !== 'missing') {
+                this.log.debug(`signal store unavailable (${result.reason})`);
+            }
             return;
         }
         this.noteStoreAvailable();
         if (result.kind === 'rows') {
-            this.writtenSignals = groupSignalNames(result.rows);
+            this.updateCatalog(result.catalog);
             this.applySignalRows(result);
         }
     }
+    updateCatalog(catalog) {
+        this.catalog = catalog;
+        const names = catalog.map((entry) => (0, schema_1.signalRefKey)(entry)).join('\n');
+        if (names === this.catalogNames) {
+            return;
+        }
+        this.catalogNames = names;
+        for (const listener of this.catalogListeners) {
+            try {
+                listener();
+            }
+            catch (error) {
+                this.log.debug(`catalog listener failed: ${(0, errors_1.describeError)(error)}`);
+            }
+        }
+    }
     applySignalRows(result) {
-        for (const plugin of result.foreignWriters) {
-            if (!this.knownForeignWriters.has(plugin)) {
-                this.knownForeignWriters.add(plugin);
-                this.log.info(`signal store: ${(0, redact_1.forLog)(plugin)} writes signals but is not in signals.sources; ignored`);
+        for (const entry of result.catalog) {
+            if (!this.allowed.includes(entry.plugin) && !this.knownForeignWriters.has(entry.plugin)) {
+                this.knownForeignWriters.add(entry.plugin);
+                this.log.info(`signal store: ${entry.plugin} writes signals; allow it under Plugin Signals to page for it`);
             }
         }
         if (result.invalidRows > 0) {
@@ -405,8 +458,8 @@ class AlertController {
         const applied = (0, mutations_1.applyRows)(state, {
             rows: result.rows,
             complete: result.complete,
-            sources: this.config.signalSources,
-            boundAlerts: this.boundAlerts,
+            allowed: this.allowed,
+            switches: new Set(this.switches.keys()),
             now: this.now(),
         });
         const swept = this.pendingRowSweep && this.sweepClosedRows();
@@ -473,7 +526,7 @@ class AlertController {
             this.log.warn(`sending resolve for ${count} alert(s) the lost state file may have left open`);
         }
     }
-    /** The same sweep for unbound rows, once the first read says which exist. */
+    /** The same sweep for signals, once the first read says which exist. */
     sweepClosedRows() {
         const state = this.requireState();
         const desired = (0, desired_1.computeDesired)(this.config, state);
@@ -516,20 +569,6 @@ class AlertController {
     }
 }
 exports.AlertController = AlertController;
-function groupSignalNames(rows) {
-    const grouped = new Map();
-    for (const row of rows) {
-        const names = grouped.get(row.plugin) ?? [];
-        if (!names.includes(row.signal)) {
-            names.push(row.signal);
-        }
-        grouped.set(row.plugin, names);
-    }
-    for (const names of grouped.values()) {
-        names.sort();
-    }
-    return grouped;
-}
 function levelName(alert, severity) {
     return alert.levels.find((level) => level.severity === severity)?.name ?? alert.name;
 }

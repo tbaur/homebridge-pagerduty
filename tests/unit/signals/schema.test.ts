@@ -13,12 +13,16 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
+  defaultSignalSwitchName,
   isAllowableSource,
   isValidPluginName,
   isValidSignalName,
   parseSignalRef,
+  pluginConfigKey,
+  pluginFromConfigKey,
   SIGNAL_SCHEMA_SQL,
   signalRefKey,
+  validateCatalogEntry,
   validateRow,
 } from '../../../src/signals/schema'
 
@@ -74,6 +78,35 @@ describe('validateRow', () => {
     ['an infinite time', { updated_at: Number.POSITIVE_INFINITY }],
   ])('rejects %s', (_name, patch) => {
     expect(validateRow({ ...row, ...patch })).toBeUndefined()
+  })
+})
+
+describe('config keys', () => {
+  it('stores a scoped package under a key without a slash, and maps it back', () => {
+    expect(pluginConfigKey('@scope/homebridge-example')).toBe('@scope:homebridge-example')
+    expect(pluginConfigKey('homebridge-example')).toBe('homebridge-example')
+    expect(pluginFromConfigKey('@scope:homebridge-example')).toBe('@scope/homebridge-example')
+    expect(pluginFromConfigKey('homebridge-example')).toBe('homebridge-example')
+  })
+
+  it.each(['homebridge-pagerduty', 'a:b', 'a:b:c', 'Bad Name', '@scope:x:y'])('rejects key %p', (key) => {
+    expect(pluginFromConfigKey(key)).toBeUndefined()
+  })
+})
+
+describe('defaultSignalSwitchName', () => {
+  it.each([['cloud-offline', 'Cloud Offline'], ['auth_failed', 'Auth Failed'], ['a.b', 'A B'], ['x', 'X'], ['---', '---']])('names %p %p', (signal, name) => {
+    expect(defaultSignalSwitchName(signal)).toBe(name)
+  })
+})
+
+describe('validateCatalogEntry', () => {
+  it('keeps a valid entry and drops this plugin, bad names and bad text', () => {
+    expect(validateCatalogEntry({ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' }))
+      .toEqual({ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' })
+    expect(validateCatalogEntry({ plugin: 'homebridge-pagerduty', signal: 'door', summary: 'x' })).toBeUndefined()
+    expect(validateCatalogEntry({ plugin: 'homebridge-example', signal: 'a/b', summary: 'x' })).toBeUndefined()
+    expect(validateCatalogEntry({ plugin: 'homebridge-example', signal: 'door', summary: '' })).toBeUndefined()
   })
 })
 

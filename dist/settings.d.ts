@@ -97,8 +97,28 @@ export declare const SIGNAL_STORE_FAULT_AFTER_MS = 300000;
 export declare const READER_BUSY_TIMEOUT_MS = 250;
 /** Read cap, applied after the allowlist filter in the query. */
 export declare const MAX_SIGNAL_ROWS = 1000;
-/** Writers not on the allowlist, listed once each so a user can add them. */
-export declare const MAX_FOREIGN_WRITERS_LISTED = 20;
+/** Plugins shown under Plugin Signals and accepted in `signals`. */
+export declare const MAX_SIGNAL_PLUGINS = 20;
+/** Signals per plugin shown under Plugin Signals and accepted in `signals`. */
+export declare const MAX_SIGNALS_PER_PLUGIN = 50;
+/** Read cap for the list of every plugin's signals, which only feeds the settings screen. */
+export declare const MAX_CATALOG_ROWS: number;
+/**
+ * Signal switches exposed. With every alert at four levels, the maintenance
+ * switch and the delivery sensor, this stays inside the 149 accessories a
+ * bridge can hold.
+ */
+export declare const MAX_SIGNAL_SWITCHES = 20;
+/** `severity` value in `signals` that keeps the plugin's own severity. */
+export declare const SEVERITY_FROM_PLUGIN = "plugin";
+/**
+ * Must match `dynamicSchemaVersion` in `config.schema.json`. Config UI X then
+ * reads `<storage>/.homebridge-pagerduty-v<version>.schema.json` instead of
+ * the static schema.
+ */
+export declare const DYNAMIC_SCHEMA_VERSION = 1;
+/** The settings screen this plugin writes, in the storage directory itself. */
+export declare const DYNAMIC_SCHEMA_FILE_NAME = ".homebridge-pagerduty-v1.schema.json";
 /**
  * Most alerts accepted.
  *

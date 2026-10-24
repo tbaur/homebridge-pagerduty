@@ -11,11 +11,11 @@
 
 ## Features
 
-- **A switch for each alert.** An alert can have up to four severity levels, such as `Freezer Warm` at `warning` and `Freezer Hot` at `critical`. Each level is its own switch, and all of them feed one PagerDuty alert.
+- **A switch for each alert.** An alert can have up to four severity levels, such as `Freezer Warning` and `Freezer Critical`. Each level is its own switch, named with the alert's prefix and the severity, and all of them send one PagerDuty message.
 - **Maintenance switch.** Holds new pages while someone works on the house, and sends them afterwards if the condition is still present. Resolves always go out.
 - **Delivery sensor.** A contact sensor that opens when pages are not going out, so the Home app can tell you that paging is broken.
 - **Resolve timer,** for a condition with no natural end.
-- **Pages from other plugins.** Another Homebridge plugin can page directly, with no automation, through a small local [signal store](docs/SIGNALS.md). Only plugins that you list can page.
+- **Pages from other plugins.** Another Homebridge plugin can page directly, with no automation, through a small local [signal store](docs/SIGNALS.md). Each plugin appears in the settings by itself and pages only after you allow it. You can change each signal's PagerDuty message and severity, or give it a HomeKit switch.
 - **Restarts and outages lose nothing.** After an outage, the plugin sends the current state, not a backlog.
 - **No analytics and no runtime dependencies.** The only network destination is your PagerDuty service.
 
@@ -43,7 +43,7 @@ Three service settings matter:
 
 ### 3. Configure
 
-**Homebridge UI** (recommended): open the plugin settings and paste the integration key. Then click **Add Alert** for each thing that should page someone, and open the new alert to fill it in. An alert needs a HomeKit name, a PagerDuty title, an ID and a severity. Everything else is optional.
+**Homebridge UI** (recommended): open the plugin settings and paste the integration key. Then click **Add Alert** for each thing that should page someone, and open the new alert to fill it in. An alert needs an accessory prefix, a PagerDuty message, an ID and a severity. Everything else is optional.
 
 Or in `config.json`:
 

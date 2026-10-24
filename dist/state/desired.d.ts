@@ -6,9 +6,9 @@
  *
  * @fileoverview Desired state, derived from configuration and persisted state.
  *
- * Pure. Every rule about alerts and levels lives here: an alert is open
- * while any level is on, its severity is the highest level
- * that is on, and a bound alert takes its severity from the last row seen.
+ * Pure. Every rule about alerts, levels and signals lives here: an alert is
+ * open while any level is on, its severity is the highest level that is on,
+ * and a signal follows its switch when it has one and its row when it does not.
  */
 import type { ResolvedConfig } from '../types';
 import type { DesiredTarget, PersistedState } from './model';

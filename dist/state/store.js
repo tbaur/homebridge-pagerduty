@@ -134,13 +134,17 @@ function parseState(raw) {
     if (!isRecord(parsed) || parsed.version !== model_1.STATE_VERSION) {
         return undefined;
     }
+    // Files written before signal switches existed have no `switches`.
+    parsed.switches ??= {};
     const { routingKeyFingerprint: fingerprint, maintenance } = parsed;
+    const isLevelState = (entry) => typeof entry.on === 'boolean' && isTime(entry.changedAt);
     const valid = (fingerprint === null || typeof fingerprint === 'string')
         && isRecord(maintenance)
         && typeof maintenance.on === 'boolean'
         && isTimeOrNull(maintenance.since)
         && isTimeOrNull(maintenance.until)
-        && everyValue(parsed.levels, (entry) => typeof entry.on === 'boolean' && isTime(entry.changedAt))
+        && everyValue(parsed.levels, isLevelState)
+        && everyValue(parsed.switches, isLevelState)
         && everyValue(parsed.alerts, (entry) => isTimeOrNull(entry.resolveAt))
         && everyValue(parsed.rowsSeen, (entry) => typeof entry.active === 'boolean'
             && (0, types_1.isSeverity)(entry.severity) && typeof entry.summary === 'string' && isTime(entry.changedAt))

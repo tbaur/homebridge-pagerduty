@@ -6,14 +6,16 @@
  *
  * @fileoverview Reading the signal store.
  *
- * `node:sqlite` is loaded only when `signals.sources` is non-empty, so a user
- * who only wants switches never loads it (or sees its ExperimentalWarning on
+ * `node:sqlite` is loaded only once the store file exists, so a user with no
+ * plugin that writes signals never loads it (or sees its ExperimentalWarning on
  * Node 22). `DatabaseSync` is synchronous, so every call here blocks the bridge
  * process; the busy timeout is short and a busy store skips the poll.
  *
  * Rules this file enforces:
  * - The allowlist is applied in the query, so rows from other writers can never
  *   push allowed rows past the read cap.
+ * - Rows from plugins that are not allowed are read only as names and text for
+ *   the settings screen, never as signals.
  * - A read error is never a clear. Missing, busy and corrupt all report
  *   `unavailable`, and the caller keeps the last rows it saw.
  * - Each poll `stat`s the file. A new device or inode number means the file was
@@ -25,15 +27,16 @@ import { dirname } from 'node:path'
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
 
 import {
-  MAX_FOREIGN_WRITERS_LISTED,
+  MAX_CATALOG_ROWS,
   MAX_SIGNAL_ROWS,
+  PLUGIN_NAME,
   PRIVATE_DIR_MODE,
   PRIVATE_FILE_MODE,
   READER_BUSY_TIMEOUT_MS,
 } from '../settings'
-import type { PluginLogger, SignalRow } from '../types'
+import type { CatalogEntry, PluginLogger, SignalRow } from '../types'
 import { describeError, errorCode } from '../utils/errors'
-import { SIGNAL_SCHEMA_SQL, SIGNAL_SCHEMA_VERSION, validateRow } from './schema'
+import { SIGNAL_SCHEMA_SQL, SIGNAL_SCHEMA_VERSION, validateCatalogEntry, validateRow } from './schema'
 
 /** The part of `node:sqlite` this file uses. */
 export interface SqliteModule {
@@ -43,13 +46,14 @@ export interface SqliteModule {
 /** Outcome of one poll. */
 export type PollResult =
   | { kind: 'unchanged' }
-  | { kind: 'rows'; rows: SignalRow[]; complete: boolean; foreignWriters: string[]; invalidRows: number }
+  | { kind: 'rows'; rows: SignalRow[]; complete: boolean; catalog: CatalogEntry[]; invalidRows: number }
   | { kind: 'unavailable'; reason: string }
 
 /** Construction options for {@link SignalReader}. */
 export interface SignalReaderOptions {
   path: string
-  sources: readonly string[]
+  /** Plugins whose rows are read as signals. */
+  allowed: readonly string[]
   log: PluginLogger
   loadSqlite?: () => SqliteModule
   platform?: typeof process.platform
@@ -59,8 +63,9 @@ interface Connection {
   db: DatabaseSync
   dev: number
   ino: number
-  rows: StatementSync
-  foreign: StatementSync
+  /** Undefined when no plugin is allowed, because `IN ()` is not valid SQL. */
+  rows: StatementSync | undefined
+  catalog: StatementSync
   dataVersion: StatementSync
   lastDataVersion: number | undefined
 }
@@ -143,18 +148,19 @@ export class SignalReader {
       db.exec(SIGNAL_SCHEMA_SQL)
       this.checkVersion(db)
       this.tightenModes()
-      const placeholders = this.options.sources.map(() => '?').join(', ')
+      const placeholders = this.options.allowed.map(() => '?').join(', ')
       const stats = statSync(this.options.path)
       this.connection = {
         db,
         dev: stats.dev,
         ino: stats.ino,
-        rows: db.prepare(
+        rows: this.options.allowed.length === 0 ? undefined : db.prepare(
           'SELECT plugin, signal, active, severity, summary, updated_at FROM signals '
           + `WHERE plugin IN (${placeholders}) ORDER BY updated_at DESC LIMIT ${MAX_SIGNAL_ROWS}`,
         ),
-        foreign: db.prepare(
-          `SELECT DISTINCT plugin FROM signals WHERE plugin NOT IN (${placeholders}) LIMIT ${MAX_FOREIGN_WRITERS_LISTED}`,
+        catalog: db.prepare(
+          'SELECT plugin, signal, summary FROM signals WHERE plugin <> ? '
+          + `ORDER BY plugin, signal LIMIT ${MAX_CATALOG_ROWS}`,
         ),
         dataVersion: db.prepare('PRAGMA data_version'),
         lastDataVersion: undefined,
@@ -170,7 +176,7 @@ export class SignalReader {
     if (connection.lastDataVersion !== undefined && version === connection.lastDataVersion) {
       return { kind: 'unchanged' }
     }
-    const raw = connection.rows.all(...this.options.sources) as Record<string, unknown>[]
+    const raw = (connection.rows?.all(...this.options.allowed) ?? []) as Record<string, unknown>[]
     const rows: SignalRow[] = []
     let invalidRows = 0
     for (const entry of raw) {
@@ -181,11 +187,11 @@ export class SignalReader {
         rows.push(row)
       }
     }
-    const foreignWriters = (connection.foreign.all(...this.options.sources) as { plugin?: unknown }[])
-      .map((entry) => entry.plugin)
-      .filter((plugin): plugin is string => typeof plugin === 'string')
+    const catalog = (connection.catalog.all(PLUGIN_NAME) as Record<string, unknown>[])
+      .map(validateCatalogEntry)
+      .filter((entry): entry is CatalogEntry => entry !== undefined)
     connection.lastDataVersion = version
-    return { kind: 'rows', rows, complete: raw.length < MAX_SIGNAL_ROWS, foreignWriters, invalidRows }
+    return { kind: 'rows', rows, complete: raw.length < MAX_SIGNAL_ROWS, catalog, invalidRows }
   }
 
   private checkVersion(db: DatabaseSync): void {

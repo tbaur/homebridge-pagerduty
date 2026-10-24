@@ -13,8 +13,8 @@
  * interface change: raise {@link SIGNAL_SCHEMA_VERSION} and say why.
  */
 
-import { MAX_SUMMARY_LENGTH } from '../settings'
-import type { SignalRef, SignalRow } from '../types'
+import { MAX_SUMMARY_LENGTH, PLUGIN_NAME } from '../settings'
+import type { CatalogEntry, SignalRef, SignalRow } from '../types'
 import { isSeverity } from '../types'
 
 /** `PRAGMA user_version` for this schema. A writer that reads higher stops. */
@@ -32,14 +32,11 @@ CREATE TABLE IF NOT EXISTS signals (
   PRIMARY KEY (plugin, signal)
 ) STRICT;`
 
-/** This plugin's own package name, which may never be a signal source. */
-const SELF = 'homebridge-pagerduty'
-
 /**
  * An npm package name, scoped or not, restricted to the characters the schema
  * allows. The schema is the stricter of the two, so it decides.
  */
-const PLUGIN_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/
+const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/
 
 const SIGNAL_NAME = /^[a-z0-9._-]{1,64}$/
 
@@ -48,12 +45,12 @@ export function isValidPluginName(value: unknown): value is string {
   return typeof value === 'string'
     && value.length >= 1
     && value.length <= 128
-    && PLUGIN_NAME.test(value)
+    && PACKAGE_NAME.test(value)
 }
 
-/** True when a package may be put on the `signals.sources` allowlist. */
+/** True when a package may be allowed to page. */
 export function isAllowableSource(value: unknown): value is string {
-  return isValidPluginName(value) && value !== SELF
+  return isValidPluginName(value) && value !== PLUGIN_NAME
 }
 
 /** True for a value usable as a `signal` column. */
@@ -86,6 +83,30 @@ export function signalRefKey(ref: SignalRef): string {
 }
 
 /**
+ * The key a plugin is stored under in `signals`.
+ *
+ * Config UI X builds JSON pointers from property names without escaping them,
+ * so the `/` of a scoped package breaks the settings screen. A package name
+ * cannot contain `:`, so `@scope:name` maps back to `@scope/name` unambiguously.
+ */
+export function pluginConfigKey(plugin: string): string {
+  return plugin.replace('/', ':')
+}
+
+/** The package name for a `signals` key, or undefined when it is not one. */
+export function pluginFromConfigKey(key: string): string | undefined {
+  const plugin = key.replace(':', '/')
+  return !plugin.includes(':') && isAllowableSource(plugin) ? plugin : undefined
+}
+
+/** `cloud-offline` becomes `Cloud Offline`. Used until the user names the switch. */
+export function defaultSignalSwitchName(signal: string): string {
+  const words = signal.split(/[-_.]+/).filter((word) => word.length > 0)
+  const name = words.map((word) => `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}`).join(' ')
+  return name.length > 0 ? name : signal
+}
+
+/**
  * Validate one row as read from SQLite.
  *
  * The `CHECK` constraints already stop a bad write, but the table may have been
@@ -102,11 +123,26 @@ export function validateRow(raw: Record<string, unknown>): SignalRow | undefined
   if (activeNumber !== 0 && activeNumber !== 1) {
     return undefined
   }
-  if (typeof summary !== 'string' || summary.length < 1 || summary.length > MAX_SUMMARY_LENGTH) {
+  if (!isValidSummary(summary)) {
     return undefined
   }
   if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) {
     return undefined
   }
   return { plugin, signal, active: activeNumber === 1, severity, summary, updatedAt }
+}
+
+/**
+ * Validate one row of the list of every plugin's signals. Rows from this
+ * plugin's own name are dropped, because it can never be allowed.
+ */
+export function validateCatalogEntry(raw: Record<string, unknown>): CatalogEntry | undefined {
+  const { plugin, signal, summary } = raw
+  return isAllowableSource(plugin) && isValidSignalName(signal) && isValidSummary(summary)
+    ? { plugin, signal, summary }
+    : undefined
+}
+
+function isValidSummary(value: unknown): value is string {
+  return typeof value === 'string' && value.length >= 1 && value.length <= MAX_SUMMARY_LENGTH
 }

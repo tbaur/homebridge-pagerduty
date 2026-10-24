@@ -43,8 +43,8 @@ export declare const ALERT_ID_PATTERN: RegExp;
  * than an exception during Homebridge startup.
  */
 export declare function validateConfig(raw: unknown): ConfigValidationResult;
-/** `Leak` for a single level, `Freezer Critical` otherwise, within HomeKit's budget. */
-export declare function defaultLevelName(alertName: string, severity: Severity, levelCount: number): string;
+/** `Leak Critical`, within HomeKit's budget. */
+export declare function levelSwitchName(prefix: string, severity: Severity): string;
 /**
  * Resolve the diagnostics heartbeat interval.
  *

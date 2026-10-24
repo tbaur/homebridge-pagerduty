@@ -10,7 +10,7 @@
  * accessory, so the log shows what is running without opening config.json.
  * The routing key never appears.
  */
-import type { ResolvedAccessory, ResolvedConfig } from '../types';
+import type { CatalogEntry, ResolvedAccessory, ResolvedConfig } from '../types';
 /** What changed while the accessories were synced with the cache. */
 export interface AccessoryChanges {
     /** Created on this start rather than restored from the cache. */
@@ -24,8 +24,8 @@ export interface StartupReportInput {
     accessories: readonly ResolvedAccessory[];
     pluginVersion: string;
     changes: AccessoryChanges;
-    /** Signal names by plugin from the first store read. Undefined leaves the signal lines out. */
-    signalsWritten?: ReadonlyMap<string, readonly string[]>;
+    /** Every plugin's signals from the first store read. Undefined leaves the signal lines out. */
+    catalog?: readonly CatalogEntry[];
 }
 /** Build the startup report, one log line per entry. */
 export declare function formatStartupReport(input: StartupReportInput): string[];

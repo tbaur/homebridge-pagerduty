@@ -51,9 +51,9 @@ export interface RowsUpdate {
     rows: readonly SignalRow[];
     /** False when the read hit its cap, so an absent row may simply be unread. */
     complete: boolean;
-    sources: readonly string[];
-    /** Configured alerts bound to a row, by `<plugin>/<signal>`. */
-    boundAlerts: ReadonlyMap<string, ResolvedAlert>;
+    allowed: readonly string[];
+    /** Signals that have a switch, by `<plugin>/<signal>`. */
+    switches: ReadonlySet<string>;
     now: number;
 }
 /** Result of {@link applyRows}. */
@@ -67,18 +67,27 @@ export interface RowsResult {
  * Fold a successful read of the signal store into state.
  *
  * A row changes only when `active` or `severity` changes; an `updated_at`
- * change alone is not a change. A changed bound row drives its alert's switch,
- * and the last change wins. A row that has gone counts as cleared, but only
- * after a read that is known to be complete.
+ * change alone is not a change. A changed row sets its signal's switch, and
+ * the last change wins over a person's. A row that has gone counts as cleared,
+ * but only after a read that is known to be complete.
  */
 export declare function applyRows(state: PersistedState, update: RowsUpdate): RowsResult;
+/** A person set a signal switch. Returns true when it changed. */
+export declare function applySignalSwitchWrite(state: PersistedState, refKey: string, write: {
+    on: boolean;
+    at: number;
+}): boolean;
 /**
- * Drop remembered rows from packages that are no longer allowed.
+ * Drop remembered rows from plugins that are no longer allowed, and switch
+ * state for signals that no longer have a switch.
  *
- * Their delivered records stay, so the reconciler still resolves anything
- * they had open. Only the memory of the row goes.
+ * Delivered records stay, so the reconciler still resolves anything that was
+ * open. Only the memory of the row or switch goes.
  */
-export declare function pruneRows(state: PersistedState, sources: readonly string[]): boolean;
+export declare function pruneSignals(state: PersistedState, keep: {
+    allowed: readonly string[];
+    switches: ReadonlySet<string>;
+}): boolean;
 /**
  * Handle a changed routing key.
  *

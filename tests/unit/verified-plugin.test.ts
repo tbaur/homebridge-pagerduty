@@ -14,6 +14,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
+import { PLUGIN_SIGNALS_TITLE } from '../../src/dynamic-schema'
 import * as settings from '../../src/settings'
 import { SEVERITIES } from '../../src/types'
 import { ALERT_ID_PATTERN, ROUTING_KEY_PATTERN, SOURCE_PATTERN } from '../../src/utils/validators'
@@ -30,6 +31,7 @@ interface SchemaNode {
   maxItems?: number
   pattern?: string
   enum?: unknown[]
+  title?: string
   properties?: Record<string, SchemaNode>
   items?: SchemaNode
   'x-schema-form'?: { type?: string }
@@ -40,11 +42,14 @@ interface ConfigSchema {
   pluginType: string
   singular?: boolean
   customUi?: boolean
+  dynamicSchemaVersion?: number
   schema: SchemaNode & { properties: Record<string, SchemaNode> }
   layout?: LayoutItem[]
 }
 
-type LayoutItem = string | { key?: string; items?: LayoutItem[] }
+type LayoutItem = string | { key?: string; title?: string; items?: LayoutItem[]; condition?: { functionBody?: string } }
+
+/** The signature Config UI X gives a layout condition. */
 
 interface PackageManifest {
   name?: string
@@ -139,9 +144,6 @@ describe('config.schema.json', () => {
         expect([path, node.default]).toEqual([path, undefined])
       }
     })
-    walk(props.signals!.properties!.sources!.items, (node, path) => {
-      expect([path, node.default]).toEqual([path, undefined])
-    })
   })
 
   it('renders the routing key as a password with the validator\'s pattern', () => {
@@ -165,7 +167,6 @@ describe('config.schema.json', () => {
     expect(props.alerts!.maxItems).toBe(settings.MAX_ALERTS)
     expect(alertItem.properties!.levels).toEqual(expect.objectContaining({ minItems: 1, maxItems: settings.MAX_LEVELS }))
     expect(alertItem.properties!.name!.maxLength).toBe(settings.MAX_NAME_LENGTH)
-    expect(levelItem.properties!.name!.maxLength).toBe(settings.MAX_NAME_LENGTH)
     expect(alertItem.properties!.summary!.maxLength).toBe(settings.MAX_SUMMARY_LENGTH)
     expect(alertItem.properties!.resolveAfterMinutes).toEqual(expect.objectContaining({ minimum: 0, maximum: settings.MAX_RESOLVE_AFTER_MINUTES }))
     expect(props.maintenance!.properties!.maxMinutes).toEqual(expect.objectContaining({
@@ -202,14 +203,17 @@ describe('config.schema.json', () => {
     expect(placed.filter((key, index) => placed.indexOf(key) !== index)).toEqual([])
   })
 
-  it('accepts the documented example signal reference and package name', () => {
-    const signal = alertItem.properties!.signal!
-    const source = props.signals!.properties!.sources!.items!
+  it('names switches from the prefix and severity alone, with no level name to override it', () => {
+    expect(alertItem.properties!.name!.title).toBe('Accessory Prefix')
+    expect(alertItem.properties!.levels!.items!.properties).not.toHaveProperty('name')
+  })
 
-    expect(new RegExp(signal.pattern!).test('homebridge-example/sump-high')).toBe(true)
-    expect(new RegExp(signal.pattern!).test('@scope/homebridge-example/sump-high')).toBe(true)
-    expect(new RegExp(signal.pattern!).test('no-slash')).toBe(false)
-    expect(new RegExp(source.pattern!).test('@scope/homebridge-example')).toBe(true)
+  it('leaves Plugin Signals for the settings screen the plugin writes', () => {
+    expect(schema.dynamicSchemaVersion).toBe(settings.DYNAMIC_SCHEMA_VERSION)
+    expect(settings.DYNAMIC_SCHEMA_FILE_NAME).toBe(`.homebridge-pagerduty-v${schema.dynamicSchemaVersion}.schema.json`)
+    expect(props.signals).toEqual({ title: PLUGIN_SIGNALS_TITLE, type: 'object', properties: {} })
+    expect(schema.layout?.find((item) => typeof item !== 'string' && item.title === PLUGIN_SIGNALS_TITLE)).toEqual(expect.objectContaining({ items: [] }))
+    expect(alertItem.properties).not.toHaveProperty('signal')
   })
 })
 

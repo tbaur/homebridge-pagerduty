@@ -11,7 +11,8 @@
  * The routing key never appears.
  */
 
-import type { ResolvedAccessory, ResolvedConfig } from '../types'
+import { allowedPlugins, signalSettings } from '../signals/config'
+import type { CatalogEntry, ResolvedAccessory, ResolvedConfig } from '../types'
 import { forLog } from './redact'
 
 /** What changed while the accessories were synced with the cache. */
@@ -28,8 +29,8 @@ export interface StartupReportInput {
   accessories: readonly ResolvedAccessory[]
   pluginVersion: string
   changes: AccessoryChanges
-  /** Signal names by plugin from the first store read. Undefined leaves the signal lines out. */
-  signalsWritten?: ReadonlyMap<string, readonly string[]>
+  /** Every plugin's signals from the first store read. Undefined leaves the signal lines out. */
+  catalog?: readonly CatalogEntry[]
 }
 
 /** Longest signal list printed for one plugin; the rest are counted. */
@@ -51,13 +52,15 @@ export function formatStartupReport(input: StartupReportInput): string[] {
   for (const id of config.heldAlertIds) {
     lines.push(`Alert switch: ${id} held until its entry is fixed; its switches show No Response`)
   }
-  if (input.signalsWritten !== undefined) {
-    for (const source of config.signalSources) {
-      lines.push(signalLine(source, input.signalsWritten.get(source) ?? [], config))
+  if (input.catalog !== undefined) {
+    for (const [plugin, written] of signalsByPlugin(input.catalog, config)) {
+      lines.push(signalLine(plugin, written, config))
     }
   }
   for (const accessory of accessories) {
-    if (accessory.kind === 'maintenance') {
+    if (accessory.kind === 'signal' && accessory.signal !== undefined) {
+      lines.push(`Signal switch: ${nameOf(accessory, changes)} for ${accessory.signal.plugin}/${accessory.signal.signal}`)
+    } else if (accessory.kind === 'maintenance') {
       lines.push(`Maintenance switch: ${nameOf(accessory, changes)}; turns off after ${config.maintenance.maxMinutes} min`)
     } else if (accessory.kind === 'delivery') {
       lines.push(`Delivery sensor: ${nameOf(accessory, changes)}`)
@@ -68,26 +71,35 @@ export function formatStartupReport(input: StartupReportInput): string[] {
 
 function platformLine({ config, pluginVersion }: StartupReportInput): string {
   const parts = [`region ${config.region.toUpperCase()}`, `source ${config.source}`]
-  if (config.signalSources.length > 0) {
-    parts.push(`signal sources ${config.signalSources.length}`)
+  const allowed = allowedPlugins(config).length
+  if (allowed > 0) {
+    parts.push(`plugins allowed ${allowed}`)
   }
   const mode = config.options.dryRun ? ' (dry run: nothing is sent)' : ''
   return `Starting v${pluginVersion}${mode}: ${parts.join(', ')}`
 }
 
-/** What a listed plugin has written, and which of its signals the alerts follow. */
-function signalLine(source: string, written: readonly string[], config: ResolvedConfig): string {
-  const followed = config.alerts.flatMap((alert) => alert.signal?.plugin === source ? [alert.signal.signal] : [])
+/** Signal names by plugin, for every plugin that writes signals or is allowed. */
+function signalsByPlugin(catalog: readonly CatalogEntry[], config: ResolvedConfig): Map<string, string[]> {
+  const grouped = new Map<string, string[]>(allowedPlugins(config).map((plugin) => [plugin, []]))
+  for (const entry of catalog) {
+    grouped.set(entry.plugin, [...grouped.get(entry.plugin) ?? [], entry.signal])
+  }
+  return new Map([...grouped].sort(([a], [b]) => a.localeCompare(b)))
+}
+
+/** What a plugin has written, and whether anything it writes can page. */
+function signalLine(plugin: string, written: readonly string[], config: ResolvedConfig): string {
   const parts = [written.length > 0 ? listSignals(written) : 'none written yet']
-  const followedWritten = followed.filter((name) => written.includes(name))
-  const followedMissing = followed.filter((name) => !written.includes(name))
-  if (followedWritten.length > 0) {
-    parts.push(`followed: ${followedWritten.map(forLog).join(', ')}`)
+  if (!allowedPlugins(config).includes(plugin)) {
+    parts.push('not allowed, so nothing is paged')
+  } else {
+    const muted = written.filter((signal) => signalSettings(config, { plugin, signal })?.enabled === false)
+    if (muted.length > 0) {
+      parts.push(`muted: ${listSignals(muted)}`)
+    }
   }
-  if (followedMissing.length > 0) {
-    parts.push(`followed but not written: ${followedMissing.map(forLog).join(', ')}`)
-  }
-  return `Signals from ${source}: ${parts.join('; ')}`
+  return `Signals from ${plugin}: ${parts.join('; ')}`
 }
 
 function listSignals(names: readonly string[]): string {

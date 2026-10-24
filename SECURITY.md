@@ -41,11 +41,12 @@ If a key leaks, delete the integration in PagerDuty, create a new one, and put t
 
 Other plugins can raise alerts by writing rows to `homebridge-pagerduty/signals.sqlite` in the Homebridge storage directory. [docs/SIGNALS.md](docs/SIGNALS.md) is the interface, and [docs/SIGNALS-AGENT.md](docs/SIGNALS-AGENT.md) is the same interface written for coding agents.
 
-**Signal Sources is not authentication.** The `signals.sources` list stops a well-behaved plugin from paging someone who never asked it to. It does not stop hostile code: any process that runs as the Homebridge user can write a row under any package name. Such a process can also read `config.json`, and the key in it, so the store adds no new exposure.
+**Allowing a plugin is not authentication.** The **Allow this plugin to page** setting stops a well-behaved plugin from paging someone who never asked it to. It does not stop hostile code: any process that runs as the Homebridge user can write a row under any package name. Such a process can also read `config.json`, and the key in it, so the store adds no new exposure.
 
 What the plugin does to keep the store safe to read:
 
-- The `signals.sources` list is part of the SQL query, so rows from unlisted plugins cannot push listed rows out of the read.
+- The list of allowed plugins is part of the SQL query, so rows from other plugins cannot push allowed rows out of the read.
+- Names and text that other plugins write are validated and length-capped. On the settings screen, that text is only ever a field's starting value, never a title or description, which the Homebridge UI renders as markup.
 - The schema's `CHECK` constraints limit `plugin` to package-name characters and cap every text column. Rows are validated again when read, in case another plugin created the table differently.
 - A read error never clears an alert, so a damaged or locked store cannot silently resolve a page.
 
@@ -55,7 +56,7 @@ What the plugin does to keep the store safe to read:
 2. Run Homebridge with minimal privileges, and do not expose it to the internet.
 3. Protect the Homebridge configuration file and any backup of it as you would a password file, because it contains a key that can page people.
 4. Use a dedicated PagerDuty service, or at least a dedicated integration, for this plugin, so you can revoke its key without affecting anything else.
-5. Add only plugins you trust to `signals.sources`.
+5. Allow only plugins you trust under Plugin Signals.
 6. Test once after setup and after any key change, because PagerDuty accepts events for a revoked key.
 
 ## Response Timeline

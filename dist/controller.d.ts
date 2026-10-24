@@ -15,7 +15,7 @@
 import { type JsonPost } from './delivery/http';
 import { type PollResult } from './signals/reader';
 import { StateStore } from './state/store';
-import type { DeliveryGauges, PluginLogger, ResolvedConfig, Severity } from './types';
+import type { CatalogEntry, DeliveryGauges, PluginLogger, ResolvedConfig, Severity, SignalRef } from './types';
 import type { InterruptibleSleep } from './utils/timing';
 /** The reader surface the controller uses. A stand-in in tests. */
 export interface SignalReaderLike {
@@ -35,7 +35,7 @@ export interface ControllerOptions {
     random?: () => number;
     sleep?: (ms: number) => InterruptibleSleep;
     store?: StateStore;
-    createReader?: (path: string, sources: readonly string[]) => SignalReaderLike;
+    createReader?: (path: string, allowed: readonly string[]) => SignalReaderLike;
     onRequest?: (durationMs: number, ok: boolean) => void;
 }
 /** Owns desired and delivered state and keeps PagerDuty in line with it. */
@@ -48,8 +48,11 @@ export declare class AlertController {
     private readonly sender;
     private readonly health;
     private readonly alertsById;
-    private readonly boundAlerts;
+    private readonly allowed;
+    /** Signals with a switch, by `<plugin>/<signal>`. */
+    private readonly switches;
     private readonly listeners;
+    private readonly catalogListeners;
     private readonly abort;
     private readonly knownForeignWriters;
     private readonly outageGapKeys;
@@ -58,7 +61,8 @@ export declare class AlertController {
     private fault;
     private reader;
     private storeUnreadableSince;
-    private writtenSignals;
+    private catalog;
+    private catalogNames;
     private lastStoreWarnAt;
     private pendingRowSweep;
     private started;
@@ -82,6 +86,9 @@ export declare class AlertController {
     setLevel(alertId: string, severity: Severity, on: boolean): void;
     isMaintenanceOn(): boolean;
     setMaintenance(on: boolean): void;
+    isSignalSwitchOn(ref: SignalRef): boolean;
+    /** A signal switch write. Pages or resolves with the signal's settings. */
+    setSignalSwitch(ref: SignalRef, on: boolean): void;
     isDeliveryFault(): boolean;
     /** Live counts for diagnostics. */
     gauges(): DeliveryGauges;
@@ -99,14 +106,23 @@ export declare class AlertController {
     private scheduleDeadline;
     private updateFault;
     private notify;
+    /**
+     * The store is polled even when no plugin is allowed, because the settings
+     * screen lists every plugin that writes to it. It is created only when a
+     * plugin is allowed, and a missing or broken store is a fault only then.
+     */
     private startSignals;
     /**
-     * The signal names each listed plugin had written at the last read, or
-     * undefined when the store has not been read. A store that does not exist
-     * yet reads as empty.
+     * Every plugin's signals at the last read, for the settings screen and the
+     * startup report. Undefined when the store has not been read. A store that
+     * does not exist yet reads as empty. The text is the other plugin's and is
+     * untrusted.
      */
-    signalsWritten(): ReadonlyMap<string, readonly string[]> | undefined;
+    signalCatalog(): readonly CatalogEntry[] | undefined;
+    /** Called when a plugin or signal appears in the store or leaves it. */
+    onCatalogChange(listener: () => void): void;
     private pollSignals;
+    private updateCatalog;
     private applySignalRows;
     private noteStoreUnavailable;
     private noteStoreAvailable;
@@ -117,7 +133,7 @@ export declare class AlertController {
      * open alert is dropped by PagerDuty with a `202`, so this is safe.
      */
     private sweepClosedAlerts;
-    /** The same sweep for unbound rows, once the first read says which exist. */
+    /** The same sweep for signals, once the first read says which exist. */
     private sweepClosedRows;
     /** Drop switch and timer state for alerts removed from config. Their delivered records stay, so they are resolved. */
     private forgetRemovedAlerts;

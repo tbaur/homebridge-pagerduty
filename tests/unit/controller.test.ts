@@ -18,8 +18,8 @@ import { AlertController, type ControllerOptions, type SignalReaderLike } from '
 import type { PollResult } from '../../src/signals/reader'
 import type { PersistedState } from '../../src/state/model'
 import { StateStore } from '../../src/state/store'
-import type { ResolvedConfig, SignalRow } from '../../src/types'
-import { alert, leveledAlert, resolvedConfig } from '../helpers/config'
+import type { CatalogEntry, ResolvedConfig, SignalRow } from '../../src/types'
+import { alert, allowedPlugin, leveledAlert, resolvedConfig, signal } from '../helpers/config'
 import { fakeLogger, type RecordingLogger } from '../helpers/hap'
 import { OTHER_ROUTING_KEY } from '../helpers/secrets'
 import { ManualSleeps } from '../helpers/sleeps'
@@ -421,22 +421,30 @@ describe('dry run', () => {
 })
 
 describe('the signal store', () => {
-  const SOURCES = ['homebridge-example']
+  const PLUGINS = [allowedPlugin('homebridge-example')]
+  const STORE_PATH = (): string => join(dir, 'homebridge-pagerduty', 'signals.sqlite')
 
   function row(overrides: Partial<SignalRow> = {}): SignalRow {
     return { plugin: 'homebridge-example', signal: 'door', active: true, severity: 'warning', summary: 'Door open', updatedAt: 1, ...overrides }
   }
 
+  function entry(plugin: string, name: string, summary = 'Door open'): CatalogEntry {
+    return { plugin, signal: name, summary }
+  }
+
   function rows(list: SignalRow[], extra: Partial<Extract<PollResult, { kind: 'rows' }>> = {}): PollResult {
-    return { kind: 'rows', rows: list, complete: true, foreignWriters: [], invalidRows: 0, ...extra }
+    const catalog = list.map((item) => entry(item.plugin, item.signal, item.summary))
+    return { kind: 'rows', rows: list, complete: true, catalog, invalidRows: 0, ...extra }
   }
 
   /** A reader that answers each poll from a script, then repeats the last answer as `unchanged`. */
-  function scriptedReader(script: PollResult[], created: string[] = []): ControllerOptions['createReader'] {
-    return (path, sources) => {
-      created.push(`${path} ${sources.join(',')}`)
+  function scriptedReader(script: PollResult[], calls: string[] = []): ControllerOptions['createReader'] {
+    return (path, allowed) => {
+      calls.push(`open ${path} ${allowed.join(',')}`)
       const reader: SignalReaderLike = {
-        create: () => undefined,
+        create: () => {
+          calls.push('create')
+        },
         poll: () => script.shift() ?? { kind: 'unchanged' },
         close: () => undefined,
       }
@@ -444,14 +452,14 @@ describe('the signal store', () => {
     }
   }
 
-  it('pages for an unbound allowlisted row and resolves when it clears', async () => {
-    const created: string[] = []
-    const h = start(resolvedConfig({ alerts: [], signalSources: SOURCES }), {
-      createReader: scriptedReader([rows([row()]), rows([row({ active: false })])], created),
+  it('pages for a row from an allowed plugin and resolves when it clears', async () => {
+    const calls: string[] = []
+    const h = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), {
+      createReader: scriptedReader([rows([row()]), rows([row({ active: false })])], calls),
     })
     await flush()
     expect(h.api.actions).toEqual(['trigger homebridge/homebridge-example/door warning'])
-    expect(created).toEqual([`${join(dir, 'homebridge-pagerduty', 'signals.sqlite')} homebridge-example`])
+    expect(calls).toEqual([`open ${STORE_PATH()} homebridge-example`, 'create'])
 
     jest.advanceTimersByTime(2_000)
     await flush()
@@ -460,34 +468,80 @@ describe('the signal store', () => {
     expect(h.controller.gauges().storeOk).toBe(true)
   })
 
-  it('drives a bound alert, which pages at the row severity under the configured summary', async () => {
-    const bound = alert({ id: 'door', levels: [{ severity: 'error', name: 'Door' }], signal: { plugin: 'homebridge-example', signal: 'door' } })
-    const h = start(resolvedConfig({ alerts: [bound], signalSources: SOURCES }), {
-      createReader: scriptedReader([rows([row({ severity: 'critical' })])]),
+  it('pages with the title and severity set in config, and the plugin text as detail', async () => {
+    const settings = signal({ signal: 'door', summary: 'Zone Two door open', severity: 'critical' })
+    const h = start(resolvedConfig({ alerts: [], signalPlugins: [allowedPlugin('homebridge-example', [settings])] }), {
+      createReader: scriptedReader([rows([row()])]),
     })
     await flush()
 
-    expect(h.controller.isLevelOn('door', 'error')).toBe(true)
-    expect(h.api.actions).toEqual(['trigger homebridge/door critical'])
+    expect(h.api.actions).toEqual(['trigger homebridge/homebridge-example/door critical'])
     const body = h.api.bodies[0]!
     expect(body.event_action === 'trigger' && body.payload).toEqual(expect.objectContaining({
-      summary: bound.summary,
-      custom_details: { origin: 'signal', level: 'Door', detail: 'Door open' },
+      summary: 'Zone Two door open',
+      custom_details: { origin: 'signal', detail: 'Door open' },
     }))
   })
 
-  it('logs other writers once, invalid rows quietly, and an over-full store loudly', async () => {
-    const h = start(resolvedConfig({ alerts: [], signalSources: SOURCES }), {
+  it('drives a signal switch from the row, and pages or resolves when a person flips it', async () => {
+    const settings = signal({ signal: 'door', switch: true, switchName: 'Zone Two' })
+    const h = start(resolvedConfig({ alerts: [], signalPlugins: [allowedPlugin('homebridge-example', [settings])] }), {
+      createReader: scriptedReader([rows([row()])]),
+    })
+    await flush()
+    const ref = { plugin: 'homebridge-example', signal: 'door' }
+    expect(h.controller.isSignalSwitchOn(ref)).toBe(true)
+
+    h.controller.setSignalSwitch(ref, false)
+    await flush()
+    h.controller.setSignalSwitch(ref, true)
+    await flush()
+
+    expect(h.api.actions).toEqual([
+      'trigger homebridge/homebridge-example/door warning',
+      'resolve homebridge/homebridge-example/door',
+      'trigger homebridge/homebridge-example/door warning',
+    ])
+    expect(h.log.lines('info')).toEqual(expect.arrayContaining(['Zone Two: switched off', 'Zone Two: switched on']))
+    expect((await stateOnDisk(h)).switches['homebridge-example/door']).toEqual(expect.objectContaining({ on: true }))
+  })
+
+  it('ignores a switch write for a signal without a switch', async () => {
+    const h = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), { createReader: scriptedReader([rows([])]) })
+
+    h.controller.setSignalSwitch({ plugin: 'homebridge-example', signal: 'door' }, true)
+    await flush()
+
+    expect(h.api.bodies).toEqual([])
+  })
+
+  it('resolves what a plugin had open once it is no longer allowed', async () => {
+    const first = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), { createReader: scriptedReader([rows([row()])]) })
+    await flush()
+
+    const config = resolvedConfig({ alerts: [], signalPlugins: [{ plugin: 'homebridge-example', allow: false, signals: [] }] })
+    await first.controller.stop()
+    running = running.filter((entry) => entry !== first.controller)
+    const second = start(config, { api: first.api, createReader: scriptedReader([rows([row()])]) })
+    await flush()
+
+    expect(second.api.actions).toEqual(['trigger homebridge/homebridge-example/door warning', 'resolve homebridge/homebridge-example/door'])
+    expect((await stateOnDisk(second)).rowsSeen).toEqual({})
+  })
+
+  it('names each plugin that is not allowed once, logs invalid rows quietly, and an over-full store loudly', async () => {
+    const other = entry('homebridge-other', 'x')
+    const h = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), {
       createReader: scriptedReader([
-        rows([], { foreignWriters: ['homebridge-other'], invalidRows: 2, complete: false }),
-        rows([], { foreignWriters: ['homebridge-other'] }),
+        rows([], { catalog: [other], invalidRows: 2, complete: false }),
+        rows([], { catalog: [other, entry('homebridge-other', 'y')] }),
       ]),
     })
     jest.advanceTimersByTime(2_000)
     await flush()
 
     expect(h.log.lines('info').filter((line) => line.includes('homebridge-other'))).toEqual([
-      'signal store: homebridge-other writes signals but is not in signals.sources; ignored',
+      'signal store: homebridge-other writes signals; allow it under Plugin Signals to page for it',
     ])
     expect(h.log.lines('debug')).toContain('signal store: 2 row(s) failed validation and were ignored')
     expect(h.log.lines('warn')).toContain('signal store holds more rows than are read; rows that have gone are not cleared until it shrinks')
@@ -496,7 +550,7 @@ describe('the signal store', () => {
   it('keeps the last rows while the store is unreadable, opens the sensor after five minutes, and recovers', async () => {
     const unavailable: PollResult = { kind: 'unavailable', reason: 'file is not a database' }
     const script: PollResult[] = [rows([row()]), ...Array.from({ length: 151 }, () => unavailable), { kind: 'unchanged' }]
-    const h = start(resolvedConfig({ alerts: [], signalSources: SOURCES }), { createReader: scriptedReader(script) })
+    const h = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), { createReader: scriptedReader(script) })
     await flush()
 
     jest.advanceTimersByTime(2_000)
@@ -514,7 +568,7 @@ describe('the signal store', () => {
   })
 
   it('logs a busy store at debug only', async () => {
-    const h = start(resolvedConfig({ alerts: [], signalSources: SOURCES }), {
+    const h = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), {
       createReader: scriptedReader([{ kind: 'unavailable', reason: 'busy' }, rows([])]),
     })
     jest.advanceTimersByTime(2_000)
@@ -525,31 +579,63 @@ describe('the signal store', () => {
     expect(h.log.lines('info')).not.toContain('signal store readable again')
   })
 
-  it('reports the signal names each listed plugin has written, sorted and without repeats', () => {
-    const h = start(resolvedConfig({ alerts: [], signalSources: [...SOURCES, 'homebridge-quiet'] }), {
-      createReader: scriptedReader([rows([
-        row({ signal: 'window' }),
-        row({ signal: 'door', active: false }),
-        row({ signal: 'door' }),
-      ])]),
+  it('lists every plugin\'s signals, and reports a change only when a name comes or goes', () => {
+    const script = [
+      rows([], { catalog: [entry('homebridge-other', 'x')] }),
+      rows([], { catalog: [entry('homebridge-other', 'x', 'New text')] }),
+      rows([], { catalog: [entry('homebridge-other', 'x'), entry('homebridge-other', 'y')] }),
+    ]
+    const h = start(resolvedConfig({ alerts: [] }), { createReader: scriptedReader(script) })
+    let changes = 0
+    h.controller.onCatalogChange(() => {
+      changes += 1
     })
+    expect(h.controller.signalCatalog()).toEqual([entry('homebridge-other', 'x')])
 
-    expect(h.controller.signalsWritten()).toEqual(new Map([['homebridge-example', ['door', 'window']]]))
+    jest.advanceTimersByTime(4_000)
+
+    expect(changes).toBe(1)
+    expect(h.controller.signalCatalog()).toHaveLength(2)
   })
 
-  it('reads a missing store as empty, an unreadable one as unknown, and no sources as unknown', () => {
-    const config = resolvedConfig({ alerts: [], signalSources: SOURCES })
+  it('keeps going when a catalog listener throws', () => {
+    const h = start(resolvedConfig({ alerts: [] }), {
+      createReader: scriptedReader([{ kind: 'unavailable', reason: 'missing' }, rows([], { catalog: [entry('homebridge-other', 'x')] })]),
+    })
+    h.controller.onCatalogChange(() => {
+      throw new Error('listener failed')
+    })
+
+    jest.advanceTimersByTime(2_000)
+
+    expect(h.log.lines('debug')).toContain('catalog listener failed: listener failed')
+  })
+
+  it('reads a missing store as empty and an unreadable one as unknown', () => {
+    const config = resolvedConfig({ alerts: [], signalPlugins: PLUGINS })
     const missing = start(config, { createReader: scriptedReader([{ kind: 'unavailable', reason: 'missing' }]) })
-    expect(missing.controller.signalsWritten()).toEqual(new Map())
+    expect(missing.controller.signalCatalog()).toEqual([])
 
     const broken = start(config, { createReader: scriptedReader([{ kind: 'unavailable', reason: 'file is not a database' }]) })
-    expect(broken.controller.signalsWritten()).toBeUndefined()
+    expect(broken.controller.signalCatalog()).toBeUndefined()
+  })
 
-    expect(start(resolvedConfig({ alerts: [] })).controller.signalsWritten()).toBeUndefined()
+  it('with no plugin allowed, reads the store without creating it, and never counts it as a fault', async () => {
+    const calls: string[] = []
+    const h = start(resolvedConfig({ alerts: [] }), {
+      createReader: scriptedReader([{ kind: 'unavailable', reason: 'missing' }, { kind: 'unavailable', reason: 'file is not a database' }], calls),
+    })
+    jest.advanceTimersByTime(2_000)
+    await flush()
+
+    expect(calls).toEqual([`open ${STORE_PATH()} `])
+    expect(h.log.lines('warn')).toEqual([])
+    expect(h.log.lines('debug')).toContain('signal store unavailable (file is not a database)')
+    expect(h.controller.gauges().storeOk).toBeNull()
   })
 
   it('treats a store that cannot be created as unavailable', async () => {
-    const h = start(resolvedConfig({ alerts: [], signalSources: SOURCES }), {
+    const h = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), {
       createReader: () => ({
         create: () => {
           throw new Error('permission denied')
@@ -565,7 +651,7 @@ describe('the signal store', () => {
 
   it('after a corrupt state file, resolves rows that the first read shows closed', async () => {
     writeFileSync(join(dir, STATE_FILE), 'garbage')
-    const h = start(resolvedConfig({ alerts: [], signalSources: SOURCES }), {
+    const h = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), {
       createReader: scriptedReader([rows([row({ active: false })])]),
     })
     await flush()
@@ -574,7 +660,7 @@ describe('the signal store', () => {
   })
 
   it('persists a summary-only change without sending anything', async () => {
-    const h = start(resolvedConfig({ alerts: [], signalSources: SOURCES }), {
+    const h = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), {
       createReader: scriptedReader([rows([row()]), rows([row({ summary: 'Still open', updatedAt: 2 })])]),
     })
     await flush()

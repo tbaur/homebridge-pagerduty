@@ -20,7 +20,7 @@
  */
 import type { API, DynamicPlatformPlugin, Logging, PlatformAccessory, PlatformConfig } from 'homebridge';
 import { type AccessoryHost } from './devices';
-import type { Severity } from './types';
+import type { Severity, SignalRef } from './types';
 /** Homebridge's dynamic platform for PagerDuty alerts. */
 export declare class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
     readonly api: API;
@@ -30,6 +30,7 @@ export declare class PagerDutyPlatform implements DynamicPlatformPlugin, Accesso
     private readonly handlers;
     private readonly diagnostics;
     private controller;
+    private schemaWriter;
     private config;
     private diagnosticsTimer;
     private lastDiagnosticsHealth;
@@ -38,6 +39,8 @@ export declare class PagerDutyPlatform implements DynamicPlatformPlugin, Accesso
     /** Homebridge hands back every accessory it restored from its cache. */
     configureAccessory(accessory: PlatformAccessory): void;
     private start;
+    /** Keep the Plugin Signals section of the settings screen in line with the signal store. */
+    private startSettingsScreen;
     private stop;
     /** Keep cached accessories registered, answering No Response. */
     private keepRestoredUnavailable;
@@ -61,6 +64,8 @@ export declare class PagerDutyPlatform implements DynamicPlatformPlugin, Accesso
     private refreshAll;
     isLevelOn(alertId: string, severity: Severity): boolean;
     setLevel(alertId: string, severity: Severity, on: boolean): void;
+    isSignalSwitchOn(signal: SignalRef): boolean;
+    setSignalSwitch(signal: SignalRef, on: boolean): void;
     isMaintenanceOn(): boolean;
     setMaintenance(on: boolean): void;
     isDeliveryFault(): boolean;

@@ -6,19 +6,21 @@
  *
  * @fileoverview Desired state, derived from configuration and persisted state.
  *
- * Pure. Every rule about alerts and levels lives here: an alert is open
- * while any level is on, its severity is the highest level
- * that is on, and a bound alert takes its severity from the last row seen.
+ * Pure. Every rule about alerts, levels and signals lives here: an alert is
+ * open while any level is on, its severity is the highest level that is on,
+ * and a signal follows its switch when it has one and its row when it does not.
  */
 
-import { signalRefKey } from '../signals/schema'
+import { allowedPlugins, signalSettings, signalSwitches } from '../signals/config'
+import { parseSignalRef, signalRefKey } from '../signals/schema'
 import { EVENT_GROUP } from '../settings'
-import type { ResolvedAlert, ResolvedConfig, SignalRef } from '../types'
+import type { ResolvedAlert, ResolvedConfig, ResolvedSignal } from '../types'
 import type { DesiredTarget, PersistedState } from './model'
 import {
   alertDedupKey,
   alertTargetKey,
   heldTarget,
+  isSignalSwitchOn,
   levelKey,
   maxSeverity,
   signalDedupKey,
@@ -31,55 +33,64 @@ export function computeDesired(
   state: PersistedState,
 ): Map<string, DesiredTarget> {
   const desired = new Map<string, DesiredTarget>()
-  const bound = new Set<string>()
   for (const alert of config.alerts) {
     desired.set(alertTargetKey(alert.id), alertTarget(alert, config.source, state))
-    if (alert.signal !== undefined) {
-      bound.add(signalRefKey(alert.signal))
-    }
   }
   for (const id of config.heldAlertIds) {
     desired.set(alertTargetKey(id), heldTarget(alertTargetKey(id), id))
   }
-  for (const [refKey, row] of Object.entries(state.rowsSeen)) {
-    const ref = parseRefKey(refKey)
-    if (ref === undefined || bound.has(refKey) || !config.signalSources.includes(ref.plugin)) {
-      continue
+  for (const refKey of signalRefKeys(config, state)) {
+    const ref = parseSignalRef(refKey)
+    const settings = ref === undefined ? undefined : signalSettings(config, ref)
+    if (settings?.enabled === true) {
+      const target = signalTarget(settings, config.source, state)
+      desired.set(target.key, target)
     }
-    const key = signalTargetKey(ref)
-    desired.set(key, {
-      key,
-      label: refKey,
-      open: row.active,
-      severity: row.severity,
-      dedupKey: signalDedupKey(config.source, ref),
-      summary: row.summary,
-      changedAt: row.changedAt,
-      // Rows carry no bypass. A writer that must page during maintenance is
-      // bound to a configured alert with `bypassMaintenance: true`.
-      bypassMaintenance: false,
-      held: false,
-      details: { component: ref.signal, group: ref.plugin, custom: { origin: 'signal' } },
-    })
   }
   return desired
 }
 
+/** Signals with a row from an allowed plugin, plus signals with a switch but no row yet. */
+function signalRefKeys(config: ResolvedConfig, state: PersistedState): Set<string> {
+  const allowed = allowedPlugins(config)
+  const keys = new Set(Object.keys(state.rowsSeen).filter((key) => allowed.includes(key.slice(0, key.lastIndexOf('/')))))
+  for (const signal of signalSwitches(config)) {
+    keys.add(signalRefKey(signal))
+  }
+  return keys
+}
+
+function signalTarget(settings: ResolvedSignal, source: string, state: PersistedState): DesiredTarget {
+  const refKey = signalRefKey(settings)
+  const row = state.rowsSeen[refKey]
+  const open = settings.switch ? isSignalSwitchOn(state, refKey) : row?.active ?? false
+  const custom: Record<string, string> = { origin: open && row?.active !== true ? 'switch' : 'signal' }
+  if (settings.summary !== undefined && row !== undefined && row.summary !== settings.summary) {
+    custom.detail = row.summary
+  }
+  return {
+    key: signalTargetKey(settings),
+    label: refKey,
+    open,
+    severity: settings.severity ?? row?.severity ?? 'critical',
+    dedupKey: signalDedupKey(source, settings),
+    summary: settings.summary ?? row?.summary ?? settings.switchName,
+    changedAt: (settings.switch ? state.switches[refKey]?.changedAt : undefined) ?? row?.changedAt ?? 0,
+    bypassMaintenance: settings.bypassMaintenance,
+    held: false,
+    details: { component: settings.signal, group: settings.plugin, custom },
+  }
+}
+
 function alertTarget(alert: ResolvedAlert, source: string, state: PersistedState): DesiredTarget {
   const levelsOn = alert.levels.filter((level) => state.levels[levelKey(alert.id, level.severity)]?.on === true)
-  const row = alert.signal === undefined ? undefined : state.rowsSeen[signalRefKey(alert.signal)]
   const highestOn = maxSeverity(levelsOn.map((level) => level.severity))
-  // A bound alert follows the last row seen, including when a person turns
-  // its switch on by hand. The configured severity applies until a row exists.
-  const severity = row?.severity ?? highestOn ?? alert.levels[0]?.severity ?? 'critical'
+  const severity = highestOn ?? alert.levels[0]?.severity ?? 'critical'
   const topLevel = levelsOn.find((level) => level.severity === highestOn)
   const changedAt = Math.max(0, ...levelsOn.map((level) => state.levels[levelKey(alert.id, level.severity)]?.changedAt ?? 0))
-  const custom: Record<string, string> = { origin: alert.signal === undefined ? 'switch' : 'signal' }
+  const custom: Record<string, string> = { origin: 'switch' }
   if (topLevel !== undefined) {
     custom.level = topLevel.name
-  }
-  if (row !== undefined) {
-    custom.detail = row.summary
   }
   return {
     key: alertTargetKey(alert.id),
@@ -93,12 +104,4 @@ function alertTarget(alert: ResolvedAlert, source: string, state: PersistedState
     held: false,
     details: { component: alert.id, group: EVENT_GROUP, custom },
   }
-}
-
-function parseRefKey(refKey: string): SignalRef | undefined {
-  const slash = refKey.lastIndexOf('/')
-  if (slash <= 0) {
-    return undefined
-  }
-  return { plugin: refKey.slice(0, slash), signal: refKey.slice(slash + 1) }
 }

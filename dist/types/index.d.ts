@@ -37,7 +37,6 @@ export interface SignalRef {
 /** One `alerts[].levels[]` entry, as written in `config.json`. */
 export interface LevelConfig {
     severity?: unknown;
-    name?: unknown;
 }
 /** One `alerts[]` entry, as written in `config.json`. */
 export interface AlertConfig {
@@ -47,7 +46,20 @@ export interface AlertConfig {
     levels?: unknown;
     resolveAfterMinutes?: unknown;
     bypassMaintenance?: unknown;
-    signal?: unknown;
+}
+/** One `signals.<plugin>.signals.<signal>` entry, as written in `config.json`. */
+export interface SignalSettingsConfig {
+    enabled?: unknown;
+    summary?: unknown;
+    severity?: unknown;
+    bypassMaintenance?: unknown;
+    switch?: unknown;
+    switchName?: unknown;
+}
+/** One `signals.<plugin>` entry, as written in `config.json`. */
+export interface SignalPluginConfig {
+    allow?: unknown;
+    signals?: unknown;
 }
 /** Shape of one `platforms[]` entry in `config.json`. */
 export interface PagerDutyPlatformConfig {
@@ -63,9 +75,8 @@ export interface PagerDutyPlatformConfig {
         name?: unknown;
         maxMinutes?: unknown;
     };
-    signals?: {
-        sources?: unknown;
-    };
+    /** Keyed by plugin config key; see `pluginFromConfigKey`. */
+    signals?: unknown;
     options?: {
         deliveryFaultSensor?: unknown;
         deliveryFaultSensorName?: unknown;
@@ -77,6 +88,7 @@ export interface PagerDutyPlatformConfig {
 /** A level after validation. */
 export interface ResolvedLevel {
     severity: Severity;
+    /** The switch name: the alert's prefix and this severity. */
     name: string;
 }
 /** An alert after validation and defaulting. */
@@ -87,8 +99,26 @@ export interface ResolvedAlert {
     levels: ResolvedLevel[];
     resolveAfterMinutes: number;
     bypassMaintenance: boolean;
-    /** Present when the alert mirrors a signal row. Such an alert has one level. */
-    signal?: SignalRef;
+}
+/** How one signal pages, after validation and defaulting. */
+export interface ResolvedSignal extends SignalRef {
+    /** False mutes the signal: it never pages, and an open alert resolves. */
+    enabled: boolean;
+    /** Replaces the plugin's text as the PagerDuty title. */
+    summary?: string;
+    /** Replaces the plugin's severity. */
+    severity?: Severity;
+    bypassMaintenance: boolean;
+    /** Expose the signal as a HomeKit switch. */
+    switch: boolean;
+    switchName: string;
+}
+/** One plugin's entry under `signals`, after validation. */
+export interface ResolvedSignalPlugin {
+    plugin: string;
+    /** Consent: nothing from this plugin pages until it is true. */
+    allow: boolean;
+    signals: ResolvedSignal[];
 }
 /** Platform-wide options after validation and defaulting. */
 export interface ResolvedOptions {
@@ -117,11 +147,12 @@ export interface ResolvedConfig {
         name: string;
         maxMinutes: number;
     };
-    signalSources: string[];
+    /** Every plugin entry in config, allowed or not, so the settings screen keeps their values. */
+    signalPlugins: ResolvedSignalPlugin[];
     options: ResolvedOptions;
 }
 /** What an accessory is. Part of its identity, and therefore of its UUID. */
-export declare const ACCESSORY_KINDS: readonly ["alert", "maintenance", "delivery"];
+export declare const ACCESSORY_KINDS: readonly ["alert", "signal", "maintenance", "delivery"];
 /** @see ACCESSORY_KINDS */
 export type AccessoryKind = (typeof ACCESSORY_KINDS)[number];
 /** Narrow an unknown value to an {@link AccessoryKind}. */
@@ -133,6 +164,8 @@ export interface ResolvedAccessory {
     name: string;
     alertId?: string;
     severity?: Severity;
+    /** Present for a signal switch. */
+    signal?: SignalRef;
 }
 /**
  * What gets persisted in `PlatformAccessory.context`.
@@ -144,6 +177,8 @@ export interface AccessoryContext {
     kind: AccessoryKind;
     alertId?: string;
     severity?: Severity;
+    /** Present for a signal switch. */
+    signal?: SignalRef;
     /** Opaque, stable, generated once. */
     serialNumber: string;
 }
@@ -153,6 +188,11 @@ export interface SignalRow extends SignalRef {
     severity: Severity;
     summary: string;
     updatedAt: number;
+}
+/** A signal some plugin has written, allowed or not. Feeds the settings screen. */
+export interface CatalogEntry extends SignalRef {
+    /** Untrusted text from the other plugin. Only ever used as a field's default value. */
+    summary: string;
 }
 /** Live gauges the diagnostics collector reads. */
 export interface DeliveryGauges {

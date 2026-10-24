@@ -30,7 +30,7 @@ function severityRank(severity) {
 }
 // --- Accessories ---------------------------------------------------------------
 /** What an accessory is. Part of its identity, and therefore of its UUID. */
-exports.ACCESSORY_KINDS = ['alert', 'maintenance', 'delivery'];
+exports.ACCESSORY_KINDS = ['alert', 'signal', 'maintenance', 'delivery'];
 /** Narrow an unknown value to an {@link AccessoryKind}. */
 function isAccessoryKind(value) {
     return typeof value === 'string' && exports.ACCESSORY_KINDS.includes(value);

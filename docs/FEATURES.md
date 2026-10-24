@@ -8,13 +8,13 @@ What the plugin does, and what it does not do.
 - ✅ Severity raised as more levels turn on, never lowered
 - ✅ Resolve timer, saved across restarts
 - ✅ `bypassMaintenance` for alerts that must always page
-- ✅ Binding to a signal row, so the switch follows another plugin's condition
 
 ## Per install
 
 - ✅ Maintenance switch that holds triggers, always sends resolves, and turns itself off
 - ✅ Delivery sensor that opens when pages are not going out
-- ✅ Signal store that other plugins write to, limited to the plugins listed in Signal Sources
+- ✅ Signal store that other plugins write to. Each plugin appears in the settings by itself, and pages only once the user allows it
+- ✅ For each signal from another plugin: an editable PagerDuty message, a severity override, paging during maintenance, mute, and an optional HomeKit switch
 - ✅ A tested module and instructions that a plugin author or coding agent can use to add signal support
 - ✅ Dry-run mode that logs what would be sent
 - ✅ US and EU PagerDuty regions

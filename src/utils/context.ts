@@ -14,7 +14,8 @@
 
 import type { PlatformAccessory } from 'homebridge'
 
-import type { AccessoryContext, ResolvedAccessory } from '../types'
+import { isValidPluginName, isValidSignalName } from '../signals/schema'
+import type { AccessoryContext, ResolvedAccessory, SignalRef } from '../types'
 import { isAccessoryKind, isSeverity } from '../types'
 import { newAccessorySerialNumber } from './serial'
 
@@ -42,6 +43,13 @@ export function parseAccessoryContext(value: unknown): AccessoryContext | undefi
     parsed.alertId = context.alertId
     parsed.severity = context.severity
   }
+  if (context.kind === 'signal') {
+    const signal = context.signal as Partial<SignalRef> | null | undefined
+    if (!isValidPluginName(signal?.plugin) || !isValidSignalName(signal?.signal)) {
+      return undefined
+    }
+    parsed.signal = { plugin: signal.plugin, signal: signal.signal }
+  }
   return parsed
 }
 
@@ -64,6 +72,9 @@ export function bindAccessoryContext(
     context.alertId = resolved.alertId
     context.severity = resolved.severity
   }
+  if (resolved.signal !== undefined) {
+    context.signal = { plugin: resolved.signal.plugin, signal: resolved.signal.signal }
+  }
   Object.assign(accessory.context as Record<string, unknown>, context)
   return context
 }
@@ -71,12 +82,18 @@ export function bindAccessoryContext(
 /**
  * The identity key an accessory's UUID is generated from.
  *
- * Alert id plus severity, never a name. Changing a level's severity therefore
- * creates a new tile, which the README says next to the `levels` setting.
+ * Alert id plus severity, or plugin plus signal, never a name. Changing a
+ * level's severity therefore creates a new tile, which the README says next
+ * to the `levels` setting.
  */
-export function accessoryIdentityKey(accessory: Pick<ResolvedAccessory, 'kind' | 'alertId' | 'severity'>): string {
+export function accessoryIdentityKey(
+  accessory: Pick<ResolvedAccessory, 'kind' | 'alertId' | 'severity' | 'signal'>,
+): string {
   if (accessory.kind === 'alert') {
     return `alert:${accessory.alertId ?? ''}:${accessory.severity ?? ''}`
+  }
+  if (accessory.kind === 'signal') {
+    return `signal:${accessory.signal?.plugin ?? ''}/${accessory.signal?.signal ?? ''}`
   }
   return accessory.kind
 }
