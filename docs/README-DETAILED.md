@@ -42,11 +42,11 @@ Each level is its own accessory with its own tile.
 
 ### Maintenance switch
 
-Model `Maintenance Switch`. Added when `maintenance.switch` is true. See [Maintenance](#maintenance).
+Model `Maintenance Switch`. Added when `maintenance.switch` is true, and named `PagerDuty Maintenance` unless `maintenance.name` says otherwise. See [Maintenance](#maintenance).
 
 ### Delivery sensor
 
-Model `Delivery Sensor`. A `ContactSensor`, added unless `options.deliveryFaultSensor` is false. **Open means pages are not going out.** Create a Home app notification for it.
+Model `Delivery Sensor`. A `ContactSensor`, added unless `options.deliveryFaultSensor` is false, and named `PagerDuty Delivery` unless `options.deliveryFaultSensorName` says otherwise. **Open means pages are not going out.** Create a Home app notification for it.
 
 It opens when any of these is true, and closes when none is:
 
@@ -99,7 +99,7 @@ PagerDuty state is never read. If a person resolves the incident while the switc
 
 ### Pages from other plugins
 
-Another Homebridge plugin can page through this one by writing to the [signal store](SIGNALS.md). It can page only after you add its package name to `signals.sources` (**Signal Sources** in the settings). Its alerts have no switch unless you tie one of your alerts to it with the alert's `signal` field. [SIGNALS.md](SIGNALS.md#for-users) explains both.
+Another Homebridge plugin can page through this one by writing to the [signal store](SIGNALS.md). It can page only after you add its package name to `signals.sources` (**Signal Sources**, under **Other Plugins** in the settings). Its alerts have no switch unless you tie one of your alerts to it with the alert's **Follow Signal** field (`signal` in `config.json`). [SIGNALS.md](SIGNALS.md#for-users) explains both.
 
 ## Reliability in detail
 
@@ -129,9 +129,11 @@ Files written: everything goes in one `homebridge-pagerduty` directory inside th
 | `source` | `homebridge` | Sent as the event source and used as the first part of every alert's key. 1–32 letters, digits, dot, underscore or hyphen. Two installs that share one integration key must use different values, or their alerts merge |
 | `alerts` | `[]` | Up to 30 alerts. See [`alerts[]` entries](#alerts-entries) |
 | `maintenance.switch` | `false` | Add the maintenance switch |
+| `maintenance.name` | `PagerDuty Maintenance` | The maintenance switch's name in HomeKit, up to 64 characters |
 | `maintenance.maxMinutes` | `240` | Maintenance turns itself off after this long, 15–10080 |
 | `signals.sources` | `[]` | Package names allowed to raise alerts through the [signal store](SIGNALS.md). Empty keeps the store closed. `homebridge-pagerduty` itself is not allowed |
 | `options.deliveryFaultSensor` | `true` | Add the delivery sensor |
+| `options.deliveryFaultSensorName` | `PagerDuty Delivery` | The delivery sensor's name in HomeKit, up to 64 characters |
 | `options.dryRun` | `false` | Log each event that would be sent and send nothing. Accepted state is kept in memory only |
 | `options.diagnosticsInterval` | `0` | Seconds between health lines. `0` is off; 1–29 becomes 30; the maximum is 3600 |
 | `options.structuredLogs` | `false` | With diagnostics, also log each report as one JSON line |
@@ -198,10 +200,11 @@ Each level takes:
       "signal": "homebridge-example/sump-high"
     }
   ],
-  "maintenance": { "switch": true, "maxMinutes": 240 },
+  "maintenance": { "switch": true, "name": "PagerDuty Maintenance", "maxMinutes": 240 },
   "signals": { "sources": ["homebridge-example"] },
   "options": {
     "deliveryFaultSensor": true,
+    "deliveryFaultSensorName": "PagerDuty Delivery",
     "dryRun": false,
     "diagnosticsInterval": 0,
     "structuredLogs": false
@@ -217,10 +220,11 @@ Each level takes:
 - **An entry with no usable `id`:** skipped with a `warn`.
 - **A repeated `id`:** the second entry is skipped with a `warn`.
 - **Out-of-range numbers:** clamped, with a `warn`.
+- **An unusable maintenance switch or delivery sensor name** (too long, not text, or with control characters): the default name is used, with a `warn`.
 
 ## Accessory identity
 
-A switch's identity is its alert `id` and its severity. The maintenance switch and the delivery sensor each have a fixed identity. A display name never enters identity, so renaming keeps the room and the automations. The log says `<old> is now named <new>` when it renames one.
+A switch's identity is its alert `id` and its severity. The maintenance switch and the delivery sensor each have a fixed identity, whatever they are named. A display name never enters identity, so renaming keeps the room and the automations. The startup report notes each rename, for example `Alert switch: leak "Water leak detected" (critical; renamed Water Leak to Leak)`.
 
 Cached accessories are adopted at startup, never recreated. Only removing an alert's `id` from the config removes its switches.
 
@@ -230,7 +234,10 @@ Only one `PagerDuty` platform is supported per Homebridge. A second block in the
 
 | Line | Level | Meaning |
 | --- | --- | --- |
-| `3 alert(s), 5 accessory(ies)` | info | Started. `(dry run: nothing is sent)` follows in dry-run mode |
+| `Starting v1.1.0: region US, source homebridge, signal sources 2` | info | Startup has begun. `(dry run: nothing is sent)` follows the version in dry-run mode. The signal sources count appears when there are any |
+| `Alert switch: freezer "Freezer temperature is high" (warning, critical)` | info | One line for each alert at startup: its `id`, its PagerDuty title and the severity of each level. `; renamed Freezer Warm to Freezer Cold` joins the brackets when a switch name changed in the config |
+| `Maintenance switch: PagerDuty Maintenance; turns off after 240 min` | info | The maintenance switch, at startup. The delivery sensor gets a `Delivery sensor:` line. `(new)` follows the name when the accessory was added on this start, and `(renamed from ...)` when its name changed |
+| `Platform ready` | info | Startup finished and everything is running. It follows the `Diagnostics start` line when diagnostics are on. If this line is missing, look for an `error` above it |
 | `Freezer Warm: switched on` | info | A level changed |
 | `Freezer: trigger sent (warning)` | info | PagerDuty accepted a trigger |
 | `Freezer: resolve sent` | info | PagerDuty accepted a resolve |

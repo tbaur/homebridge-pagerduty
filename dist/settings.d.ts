@@ -112,6 +112,9 @@ export declare const MAX_LEVELS = 4;
 export declare const MAX_SUMMARY_LENGTH = 1024;
 /** Longest accepted HomeKit display name. */
 export declare const MAX_NAME_LENGTH = 64;
+/** HomeKit names used until the user sets their own. */
+export declare const DEFAULT_MAINTENANCE_NAME = "PagerDuty Maintenance";
+export declare const DEFAULT_DELIVERY_SENSOR_NAME = "PagerDuty Delivery";
 /** Longest untrusted string interpolated into a log line. */
 export declare const MAX_LOG_FIELD_LENGTH = 100;
 /** Resolve timer range, minutes. 0 is off; the top is one week. */

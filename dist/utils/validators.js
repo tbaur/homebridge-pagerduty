@@ -61,6 +61,12 @@ function validateConfig(raw) {
     warnAboutUnreadSignals(alerts, signalSources, warnings);
     const maintenance = {
         switch: config.maintenance?.switch === true,
+        name: validateAccessoryName({
+            value: config.maintenance?.name,
+            label: 'maintenance.name',
+            fallback: settings_1.DEFAULT_MAINTENANCE_NAME,
+            warnings,
+        }),
         maxMinutes: clampInteger({
             value: config.maintenance?.maxMinutes,
             label: 'maintenance.maxMinutes',
@@ -226,6 +232,24 @@ function validateText(input) {
     }
     return text;
 }
+/** An optional accessory name. A bad value keeps the default rather than holding the accessory. */
+function validateAccessoryName(input) {
+    const { value, label, fallback, warnings } = input;
+    if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+        return fallback;
+    }
+    if (typeof value !== 'string') {
+        warnings.push(`${label} is not text; using ${(0, redact_1.forLog)(fallback)}`);
+        return fallback;
+    }
+    const problems = [];
+    const name = validateText({ value, field: label, max: settings_1.MAX_NAME_LENGTH, problems });
+    if (name === undefined) {
+        warnings.push(`${problems.join('; ')}; using ${(0, redact_1.forLog)(fallback)}`);
+        return fallback;
+    }
+    return name;
+}
 function validateLevels(value, alertName, problems) {
     if (!Array.isArray(value) || value.length === 0 || value.length > settings_1.MAX_LEVELS) {
         problems.push(`levels must list 1 to ${settings_1.MAX_LEVELS} entries`);
@@ -299,6 +323,12 @@ function warnAboutUnreadSignals(alerts, sources, warnings) {
 function validateOptions(value, warnings) {
     return {
         deliveryFaultSensor: value?.deliveryFaultSensor !== false,
+        deliveryFaultSensorName: validateAccessoryName({
+            value: value?.deliveryFaultSensorName,
+            label: 'options.deliveryFaultSensorName',
+            fallback: settings_1.DEFAULT_DELIVERY_SENSOR_NAME,
+            warnings,
+        }),
         dryRun: value?.dryRun === true,
         diagnosticsInterval: resolveDiagnosticsIntervalSec(value?.diagnosticsInterval, warnings),
         structuredLogs: value?.structuredLogs === true,
@@ -358,10 +388,10 @@ function resolveAccessories(config, warnings) {
         }
     }
     if (config.maintenance.switch) {
-        accessories.push({ kind: 'maintenance', name: 'PagerDuty Maintenance' });
+        accessories.push({ kind: 'maintenance', name: config.maintenance.name });
     }
     if (config.options.deliveryFaultSensor) {
-        accessories.push({ kind: 'delivery', name: 'PagerDuty Delivery' });
+        accessories.push({ kind: 'delivery', name: config.options.deliveryFaultSensorName });
     }
     const counts = new Map();
     for (const accessory of accessories) {

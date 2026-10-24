@@ -43,7 +43,7 @@ Three service settings matter:
 
 ### 3. Configure
 
-**Homebridge UI** (recommended): open the plugin settings, paste the integration key, and add an alert for each condition that should page.
+**Homebridge UI** (recommended): open the plugin settings and paste the integration key. Then click **Add Alert** for each thing that should page someone, and open the new alert to fill it in. An alert needs a HomeKit name, a PagerDuty title, an ID and a severity. Everything else is optional.
 
 Or in `config.json`:
 

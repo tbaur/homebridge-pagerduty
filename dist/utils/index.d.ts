@@ -12,5 +12,6 @@ export * from './errors';
 export * from './redact';
 export * from './retry-after';
 export * from './serial';
+export * from './startup-report';
 export * from './timing';
 export * from './validators';

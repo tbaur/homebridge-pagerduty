@@ -230,7 +230,7 @@ describe('maintenance', () => {
   })
 
   it('turns itself off after maxMinutes and sends what was held', async () => {
-    const h = start(resolvedConfig({ maintenance: { switch: true, maxMinutes: 15 } }))
+    const h = start(resolvedConfig({ maintenance: { switch: true, name: 'PagerDuty Maintenance', maxMinutes: 15 } }))
     h.controller.setMaintenance(true)
     h.controller.setMaintenance(true)
     h.controller.setLevel('leak', 'critical', true)
@@ -247,7 +247,7 @@ describe('maintenance', () => {
     const first = start()
     first.controller.setMaintenance(true)
 
-    const second = await restart(first, resolvedConfig({ maintenance: { switch: false, maxMinutes: 240 } }))
+    const second = await restart(first, resolvedConfig({ maintenance: { switch: false, name: 'PagerDuty Maintenance', maxMinutes: 240 } }))
     second.controller.setMaintenance(true)
 
     expect(second.controller.isMaintenanceOn()).toBe(false)
@@ -403,7 +403,7 @@ describe('restarts', () => {
 
 describe('dry run', () => {
   it('logs what it would send, sends nothing, and keeps delivery out of the state file', async () => {
-    const h = start(resolvedConfig({ options: { deliveryFaultSensor: true, dryRun: true, diagnosticsInterval: 0, structuredLogs: false } }))
+    const h = start(resolvedConfig({ options: { ...resolvedConfig().options, dryRun: true } }))
 
     h.controller.setLevel('leak', 'critical', true)
     await flush()

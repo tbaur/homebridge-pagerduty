@@ -46,8 +46,12 @@ export declare class PagerDutyPlatform implements DynamicPlatformPlugin, Accesso
      *
      * Accessories of a held alert are neither adopted nor removed: they stay
      * registered and answer No Response until the entry is fixed.
+     *
+     * Returns which accessories were created and which were renamed, for the
+     * startup report.
      */
     private syncAccessories;
+    /** Returns the previous name when the accessory had to be renamed. */
     private adopt;
     /** Attach a handler to a cached accessory without touching its identity. */
     private revive;

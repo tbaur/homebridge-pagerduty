@@ -42,9 +42,15 @@ export function resolvedConfig(overrides: Partial<ResolvedConfig> = {}): Resolve
     source: 'homebridge',
     alerts: [alert()],
     heldAlertIds: [],
-    maintenance: { switch: true, maxMinutes: 240 },
+    maintenance: { switch: true, name: 'PagerDuty Maintenance', maxMinutes: 240 },
     signalSources: [],
-    options: { deliveryFaultSensor: true, dryRun: false, diagnosticsInterval: 0, structuredLogs: false },
+    options: {
+      deliveryFaultSensor: true,
+      deliveryFaultSensorName: 'PagerDuty Delivery',
+      dryRun: false,
+      diagnosticsInterval: 0,
+      structuredLogs: false,
+    },
     ...overrides,
   }
 }
