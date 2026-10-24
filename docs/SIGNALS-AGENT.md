@@ -34,12 +34,12 @@ The examples use `homebridge-example`. Use the plugin's real package name from i
    - a summary that a person on call understands without context, such as `Sump water level is high`. 1 to 1024 characters.
 
    Signal names become a public interface once released, because users type them into their config. Do not rename them later.
-3. **Add a setting,** off by default. See [Setting](#setting).
+3. **Add a setting,** off by default, and make sure the settings screen shows it. See [Setting](#setting).
 4. **Add the module** from [Module to copy](#module-to-copy) as one file, for example `src/pagerduty-signals.ts`. Copy it unchanged. For a JavaScript plugin, remove the type annotations, the `import type` line and the `export type` and `export interface` declarations.
 5. **Connect it to the plugin.** See [Wiring](#wiring).
 6. **Add tests.** See [Tests](#tests).
 7. **Document it.** Add the section from [README section](#readme-section) to the plugin's README.
-8. **Check it end to end,** if a test Homebridge with homebridge-pagerduty is available. Set homebridge-pagerduty's `options.dryRun` to `true`, so that it logs each event it would send and pages no one. Add `homebridge-example` to its `signals.sources`. Then trigger a condition and look for the event in the Homebridge log.
+8. **Check it end to end,** if a test Homebridge with homebridge-pagerduty is available. Set homebridge-pagerduty's `options.dryRun` to `true`, so that it logs each event it would send and pages no one. Add `homebridge-example` to its `signals.sources`. Then trigger a condition and look for the event in the Homebridge log. After a restart, homebridge-pagerduty's startup log also lists the signals it found, in a line such as `Signals from homebridge-example: hub-offline, sump-high`.
 
 ## Specification
 
@@ -252,6 +252,19 @@ Add a boolean to `config.schema.json`, off by default:
 
 Add it to the plugin's config type as an optional boolean, and treat a missing value as `false`.
 
+**If `config.schema.json` has a `layout` array, add `pagerdutySignals` to the layout too.** Homebridge's settings screen shows only the fields that the layout lists. A setting that is missing from the layout still saves and loads, but users never see it, and no test catches that. Put it in the section that holds the plugin's other optional settings, for example:
+
+```json
+{
+  "type": "fieldset",
+  "title": "Advanced",
+  "expandable": true,
+  "items": ["pagerdutySignals"]
+}
+```
+
+If that section already exists, add `"pagerdutySignals"` to its `items` rather than creating a second one. Without a `layout` array, the setting appears on its own, and nothing else is needed.
+
 ## Wiring
 
 Adapt this to the plugin's structure. The parts that matter are when `write` and `close` are called.
@@ -319,6 +332,7 @@ To give a condition its own HomeKit switch, add an alert in homebridge-pagerduty
 ## Done when
 
 - [ ] The setting exists, is off by default, and nothing touches the store while it is off.
+- [ ] The setting shows in Homebridge's settings screen. If `config.schema.json` has a `layout` array, `pagerdutySignals` is listed in it.
 - [ ] The module is copied unchanged, and `node:sqlite` is not imported anywhere else.
 - [ ] Every signal is written once at startup, and again whenever it changes.
 - [ ] `close` is called on shutdown, and no signal is cleared there.
