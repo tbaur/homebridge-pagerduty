@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/tbaur/homebridge-pagerduty/compare/v1.1.0...v1.1.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* mark new alert switches in the startup report ([#10](https://github.com/tbaur/homebridge-pagerduty/issues/10)) ([fc81da4](https://github.com/tbaur/homebridge-pagerduty/commit/fc81da435f58f2bdf8a65de5a40e3b72fc559e62))
+
 ## [1.1.0](https://github.com/tbaur/homebridge-pagerduty/compare/v1.0.0...v1.1.0) (2026-10-24)
 
 
