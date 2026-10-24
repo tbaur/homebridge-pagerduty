@@ -16,6 +16,7 @@ import { join } from 'node:path'
 
 import type { API, Logging, PlatformAccessory, PlatformConfig } from 'homebridge'
 
+import { AlertController } from '../../src/controller'
 import { postJson } from '../../src/delivery/http'
 import { PagerDutyPlatform } from '../../src/platform'
 import { characteristics, FakeAccessory, FakeHapStatusError, fakeHap } from '../helpers/hap'
@@ -74,9 +75,14 @@ function fakeApi(): FakeApi {
       }
     },
     shutdown: async () => {
+      // Homebridge does not await shutdown, but the test must: the final state
+      // write is real disk I/O, and cleanup would race it on a slow runner.
+      const stops = jest.spyOn(AlertController.prototype, 'stop')
       for (const handler of handlers.get('shutdown') ?? []) {
         handler()
       }
+      await Promise.all(stops.mock.results.map((result) => result.value))
+      stops.mockRestore()
       for (let index = 0; index < 8; index += 1) {
         await new Promise((resolve) => setImmediate(resolve))
       }
