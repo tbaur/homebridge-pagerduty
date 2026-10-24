@@ -1,6 +1,6 @@
 # homebridge-pagerduty: detailed documentation
 
-The [README](../README.md) covers installation and the common settings. This page covers everything else.
+The [README](../README.md) covers installation and setup. This page covers everything else.
 
 ## Table of Contents
 
@@ -87,7 +87,7 @@ While the maintenance switch is on:
 - New triggers and severity raises are held.
 - Resolves are always sent.
 - Alerts with `bypassMaintenance: true` are not held.
-- Unbound signal rows are always held. A writer that must page during maintenance should be bound to an alert that bypasses it.
+- Signals from other plugins are always held, unless they are tied to an alert with `bypassMaintenance: true`.
 
 When maintenance ends, anything still active is sent. A condition that started and ended during maintenance sends nothing.
 
@@ -95,15 +95,19 @@ Maintenance turns itself off after `maintenance.maxMinutes` (default 240, at mos
 
 ### What the plugin does not track
 
-PagerDuty state is never read. If a person resolves the incident while the switch stays on, nothing is sent until the switch changes. The same applies when the service auto-resolves it. While an incident is acknowledged, PagerDuty notifies no one again, even when the severity goes up.
+PagerDuty state is never read. If a person resolves the incident while the switch stays on, nothing is sent until the switch changes. Turning the switch off and on then opens a new incident. The same applies when the service auto-resolves it. While an incident is acknowledged, PagerDuty notifies no one again, even when the severity goes up.
+
+### Pages from other plugins
+
+Another Homebridge plugin can page through this one by writing to the [signal store](SIGNALS.md). It can page only after you add its package name to `signals.sources` (**Signal Sources** in the settings). Its alerts have no switch unless you tie one of your alerts to it with the alert's `signal` field. [SIGNALS.md](SIGNALS.md#for-users) explains both.
 
 ## Reliability in detail
 
-The plugin keeps two pictures of every alert: what should be true (from the switches, signal rows, timers and maintenance), and what PagerDuty has accepted. Both are saved to disk. One sender compares them and sends whatever closes the gap, one request at a time.
+For every alert, the plugin saves two things to disk: what should be true, based on the switches, signal rows, timers and maintenance, and what PagerDuty has accepted. One sender compares the two and sends whatever makes PagerDuty match, one request at a time.
 
 - **Restart:** the next start picks up where the last one stopped. An unsent resolve is sent then.
 - **Outage:** nothing is queued. When PagerDuty answers again, the plugin sends the current state. The recovery line counts alerts that opened and closed while PagerDuty was unreachable and were never sent.
-- **Accepted means accepted:** an alert is recorded as open in PagerDuty only after PagerDuty accepts it. What is recorded is what was sent, so a severity raised while a request was in flight is still sent afterwards.
+- **Only an accepted event counts:** an alert is recorded as open in PagerDuty only after PagerDuty accepts it. What is recorded is what was sent, so a severity raised while a request was in flight is still sent afterwards.
 - **Rejected events:** PagerDuty's reason is logged, the delivery sensor opens, and the same event is not sent again. The alert is retried once it changes, after an upgrade, or after the key, region or source changes.
 - **Retries:** network errors and server errors retry after 5 seconds, doubling to 5 minutes, with random jitter. Rate limits wait at least 30 seconds, doubling to 5 minutes, and honor `Retry-After` up to 15 minutes. [EVENTS-API.md](EVENTS-API.md#status-handling) has the detail.
 - **A lost state file:** if the state file cannot be parsed, it is moved aside, and the plugin sends a resolve for every alert that should be closed. A resolve for an alert that is not open is harmless. Any other read error, such as a permission problem, stops the platform instead, so the problem is visible.
@@ -138,17 +142,17 @@ Files written: everything goes in one `homebridge-pagerduty` directory inside th
 | --- | --- | --- |
 | `id` | ✓ | Stable identifier: a lowercase letter, then up to 31 lowercase letters, digits or hyphens. Unique. Changing it creates a new alert and new switches |
 | `name` | ✓ | Display name, up to 64 characters |
-| `summary` | ✓ | The incident title in PagerDuty, 1–1024 characters |
+| `summary` | ✓ | The alert title in PagerDuty, 1–1024 characters |
 | `levels` | ✓ | 1–4 levels, each with a different `severity` |
 | `resolveAfterMinutes` | | Resolve automatically this many minutes after the last On, 0–10080. `0` (default) is never |
 | `bypassMaintenance` | | Page even while maintenance is on (default false) |
-| `signal` | | `<plugin>/<signal>`: bind the switch to a signal row. A bound alert must have exactly one level, and the plugin must be in `signals.sources` |
+| `signal` | | `<package>/<signal>`: the switch follows a signal that another plugin writes. The alert must have exactly one level, and the package must be in `signals.sources`. See [SIGNALS.md](SIGNALS.md#give-a-condition-its-own-switch) |
 
 Each level takes:
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `severity` | ✓ | `info`, `warning`, `error` or `critical`. With dynamic notifications, `critical` and `error` are high urgency |
+| `severity` | ✓ | `info`, `warning`, `error` or `critical`. If the service uses alert severity to set urgency, `critical` and `error` are high urgency, and `warning` and `info` are low |
 | `name` | | The switch name. Defaults to the alert name for a single level, and to `<alert name> <Severity>` otherwise |
 
 **Severity is part of a switch's identity.** Changing it creates a new switch and removes the old one, along with its automations.
@@ -246,7 +250,7 @@ Only one `PagerDuty` platform is supported per Homebridge. A second block in the
 | `state file was unreadable; moved aside and starting empty: ...` | warn | Followed by a resolve sweep |
 | `sending resolve for 4 alert(s) the lost state file may have left open` | warn | The resolve sweep |
 | `signal store unavailable (...); keeping the last rows read` | warn | A read error. Nothing is cleared |
-| `signal store: homebridge-example writes signals but is not in signals.sources; ignored` | info | A writer that is not allowed. Add it to page from it |
+| `signal store: homebridge-example writes signals but is not in signals.sources; ignored` | info | A plugin writes signals but is not in Signal Sources. Add it to let it page |
 | `tightened /path/to/homebridge-pagerduty/signals.sqlite-wal to owner-only` | info | A store file had a looser mode |
 
 Names and values that come from config or from other plugins are escaped and length-capped before they reach the log.
@@ -275,16 +279,20 @@ With `options.structuredLogs`, each report is also logged as one JSON line for l
 2. **`no routingKey set; PagerDuty is not started`.** Add the integration key.
 3. **`routingKey is not a 32-character PagerDuty integration key`.** Copy the **Integration Key** from the Events API v2 integration, not a REST API key or a service ID.
 4. **`platform disabled; cached accessories kept`.** The lines before it say what is wrong. Your switches show No Response until it is fixed. Nothing has been removed.
-5. **An EU account.** Set `region` to `eu`. PagerDuty forwards EU keys sent to the US host, but recommends the EU host.
-6. **A switch disappeared.** Its alert `id` or level `severity` changed, which is a new switch. Names can change freely.
-7. **An incident stays open after the switch turned off.** Check the log for `resolve sent`. If it is there, a PagerDuty maintenance window probably dropped the resolve, or the key changed since the trigger. Resolve it in PagerDuty.
-8. **The severity went down in HomeKit but not in PagerDuty.** PagerDuty never lowers an alert's severity.
-9. **No one was notified for a severity raise.** The incident was acknowledged, or the raise stayed inside one urgency band (`warning` to `info`, or `error` to `critical`).
-10. **`the integration key changed while ... were open`.** Resolve the named alerts in PagerDuty. The plugin cannot.
-11. **`saved state could not be loaded`.** The platform stopped rather than starting empty and losing track of open alerts. Check the permissions on the `homebridge-pagerduty` directory and the `state.json` inside it.
-12. **A plugin writes signals but nothing pages.** Add its package name to `signals.sources`. The log names writers that are not allowed.
-13. **`ExperimentalWarning: SQLite is an experimental feature`.** Node 22 prints this once when the signal store opens. It is harmless.
-14. **`a second PagerDuty platform is configured`.** Remove the extra `PagerDuty` block from `config.json`.
+5. **`alert <id> is held until fixed`.** One alert entry has a problem, and the line says what. That alert sends nothing and keeps its switch until you fix the entry.
+6. **`PagerDuty rejected the trigger`.** PagerDuty refused the event, and the reason follows in the same line. The alert is tried again when it changes.
+7. **`PagerDuty is not reachable` or `PagerDuty is rate limiting events`.** The plugin retries on its own, and logs one line when PagerDuty answers again.
+8. **The delivery sensor is open.** Pages are not going out. The log shows a rejected event or an unreachable PagerDuty, or says that the signal store has been unreadable for 5 minutes.
+9. **An EU account.** Set `region` to `eu`. PagerDuty forwards EU keys sent to the US host, but recommends the EU host.
+10. **A switch disappeared.** Its alert `id` or level `severity` changed, which makes it a new switch. Names can change freely.
+11. **An incident stays open after the switch turned off.** Check the log for `resolve sent`. If it is there, a PagerDuty maintenance window probably dropped the resolve, or the key changed since the trigger. Resolve the incident in PagerDuty.
+12. **The severity went down in HomeKit but not in PagerDuty.** PagerDuty never lowers an alert's severity.
+13. **No one was notified for a severity raise.** Either the incident was acknowledged, or both severities have the same urgency: `info` and `warning` are both low, and `error` and `critical` are both high.
+14. **`the integration key changed while ... were open`.** Resolve the named alerts in PagerDuty. The plugin cannot.
+15. **`saved state could not be loaded`.** The platform stopped rather than starting empty and losing track of open alerts. Check the permissions on the `homebridge-pagerduty` directory and the `state.json` inside it.
+16. **A plugin writes signals but nothing pages.** Add its package name to `signals.sources`. The log names any plugin that writes signals but is not listed.
+17. **`ExperimentalWarning: SQLite is an experimental feature`.** Node 22 prints this once when the signal store opens. It is harmless.
+18. **`a second PagerDuty platform is configured`.** Remove the extra `PagerDuty` block from `config.json`.
 
 To check the whole path from a terminal, without Homebridge, see [`scripts/README.md`](../scripts/README.md).
 
@@ -292,14 +300,15 @@ To check the whole path from a terminal, without Homebridge, see [`scripts/READM
 
 The integration key lives in the Homebridge config file, like every Homebridge credential. It is never written to the log, the diagnostics output or an accessory's cache, and only its SHA-256 fingerprint is saved in the state file. PagerDuty's error responses are redacted before they are logged. The only network destination is the PagerDuty Events host for your region, over HTTPS, with redirects refused.
 
-The signal store's allowlist is not authentication. See [SIGNALS.md](SIGNALS.md#security) and [SECURITY.md](../SECURITY.md).
+Signal Sources is not authentication. See [SIGNALS.md](SIGNALS.md#security) and [SECURITY.md](../SECURITY.md).
 
 ## Quality
 
 - Strict TypeScript with `noUncheckedIndexedAccess`, type-aware lint, and lint that fails on warnings
 - A Jest suite with a 90% coverage gate on statements, branches, functions and lines
 - The decision logic is a pure function, tested directly against every behavior on this page
-- The signal store is tested against real SQLite files, including a writer in a separate process and a file replaced while open
+- The signal store is tested against real SQLite files, including writes from a separate process and a file replaced while open
+- The module in [SIGNALS-AGENT.md](SIGNALS-AGENT.md) is compiled and run against the reader in the test suite
 - No runtime dependencies
 
 ## More
@@ -307,6 +316,7 @@ The signal store's allowlist is not authentication. See [SIGNALS.md](SIGNALS.md#
 - [README](../README.md)
 - [Features](FEATURES.md)
 - [Signal store](SIGNALS.md)
+- [Signal store for coding agents](SIGNALS-AGENT.md)
 - [Events API reference](EVENTS-API.md)
 - [Development](../DEVELOPMENT.md)
 - [Report Issues](https://github.com/tbaur/homebridge-pagerduty/issues)
