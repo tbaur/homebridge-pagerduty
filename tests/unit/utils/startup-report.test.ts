@@ -111,6 +111,46 @@ describe('formatStartupReport', () => {
     ])
   })
 
+  it('lists the signals each listed plugin has written, and which ones the alerts follow', () => {
+    const config = resolvedConfig({
+      signalSources: ['homebridge-example', 'homebridge-quiet'],
+      alerts: [
+        alert({ id: 'sump', signal: { plugin: 'homebridge-example', signal: 'sump-high' } }),
+        alert({ id: 'typo', signal: { plugin: 'homebridge-example', signal: 'sump-hgih' } }),
+      ],
+    })
+    const signalsWritten = new Map([['homebridge-example', ['flood', 'sump-high']]])
+
+    const lines = formatStartupReport({
+      config,
+      accessories: resolveAccessories(config),
+      pluginVersion: '1.2.3',
+      changes: { created: new Set(), renamed: new Map() },
+      signalsWritten,
+    })
+
+    expect(lines).toContain('Signals from homebridge-example: flood, sump-high; followed: sump-high; followed but not written: sump-hgih')
+    expect(lines).toContain('Signals from homebridge-quiet: none written yet')
+    expect(lines.indexOf('Signals from homebridge-example: flood, sump-high; followed: sump-high; followed but not written: sump-hgih'))
+      .toBeLessThan(lines.findIndex((line) => line.startsWith('Maintenance switch:')))
+  })
+
+  it('caps a long signal list and leaves signal lines out when the store was not read', () => {
+    const config = resolvedConfig({ signalSources: ['homebridge-example'] })
+    const names = Array.from({ length: 23 }, (_, index) => `s${String(index).padStart(2, '0')}`)
+    const build = (signalsWritten?: Map<string, string[]>): string[] => formatStartupReport({
+      config,
+      accessories: resolveAccessories(config),
+      pluginVersion: '1.2.3',
+      changes: { created: new Set(), renamed: new Map() },
+      signalsWritten,
+    })
+
+    const line = build(new Map([['homebridge-example', names]])).find((entry) => entry.startsWith('Signals from'))
+    expect(line).toBe(`Signals from homebridge-example: ${names.slice(0, 20).join(', ')} and 3 more`)
+    expect(build().some((entry) => entry.startsWith('Signals from'))).toBe(false)
+  })
+
   it('leaves out accessories that are turned off', () => {
     const base = resolvedConfig()
     const config = resolvedConfig({

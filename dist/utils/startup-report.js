@@ -14,6 +14,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.formatStartupReport = formatStartupReport;
 const redact_1 = require("./redact");
+/** Longest signal list printed for one plugin; the rest are counted. */
+const MAX_LISTED_SIGNALS = 20;
 /** Build the startup report, one log line per entry. */
 function formatStartupReport(input) {
     const { config, accessories, changes } = input;
@@ -29,6 +31,11 @@ function formatStartupReport(input) {
     }
     for (const id of config.heldAlertIds) {
         lines.push(`Alert switch: ${id} held until its entry is fixed; its switches show No Response`);
+    }
+    if (input.signalsWritten !== undefined) {
+        for (const source of config.signalSources) {
+            lines.push(signalLine(source, input.signalsWritten.get(source) ?? [], config));
+        }
     }
     for (const accessory of accessories) {
         if (accessory.kind === 'maintenance') {
@@ -47,6 +54,25 @@ function platformLine({ config, pluginVersion }) {
     }
     const mode = config.options.dryRun ? ' (dry run: nothing is sent)' : '';
     return `Starting v${pluginVersion}${mode}: ${parts.join(', ')}`;
+}
+/** What a listed plugin has written, and which of its signals the alerts follow. */
+function signalLine(source, written, config) {
+    const followed = config.alerts.flatMap((alert) => alert.signal?.plugin === source ? [alert.signal.signal] : []);
+    const parts = [written.length > 0 ? listSignals(written) : 'none written yet'];
+    const followedWritten = followed.filter((name) => written.includes(name));
+    const followedMissing = followed.filter((name) => !written.includes(name));
+    if (followedWritten.length > 0) {
+        parts.push(`followed: ${followedWritten.map(redact_1.forLog).join(', ')}`);
+    }
+    if (followedMissing.length > 0) {
+        parts.push(`followed but not written: ${followedMissing.map(redact_1.forLog).join(', ')}`);
+    }
+    return `Signals from ${source}: ${parts.join('; ')}`;
+}
+function listSignals(names) {
+    const listed = names.slice(0, MAX_LISTED_SIGNALS).map(redact_1.forLog).join(', ');
+    const rest = names.length - MAX_LISTED_SIGNALS;
+    return rest > 0 ? `${listed} and ${rest} more` : listed;
 }
 /** `new` when every switch was created on this start, otherwise the names of the ones that were. */
 function newNotes(switches, changes) {

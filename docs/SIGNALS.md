@@ -38,7 +38,7 @@ You can tie a condition to an alert that you configure. The alert's switch then 
 
 1. List the package in Signal Sources, as described above. The settings screen shows the **Follow Signal** field only after that.
 2. Add an alert with exactly one level.
-3. Set its **Follow Signal** field to `<package>/<signal>`, for example `homebridge-example/sump-high`. The other plugin's documentation lists its signal names.
+3. Set its **Follow Signal** field to `<package>/<signal>`, for example `homebridge-example/sump-high`. The other plugin's documentation lists its signal names. The Homebridge log also lists them at startup, in a line such as `Signals from homebridge-example: flood, sump-high`.
 
 If the package is not in Signal Sources, the plugin logs a `warn` at startup and the alert does not follow the signal.
 

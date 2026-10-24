@@ -58,6 +58,7 @@ export declare class AlertController {
     private fault;
     private reader;
     private storeUnreadableSince;
+    private writtenSignals;
     private lastStoreWarnAt;
     private pendingRowSweep;
     private started;
@@ -99,6 +100,12 @@ export declare class AlertController {
     private updateFault;
     private notify;
     private startSignals;
+    /**
+     * The signal names each listed plugin had written at the last read, or
+     * undefined when the store has not been read. A store that does not exist
+     * yet reads as empty.
+     */
+    signalsWritten(): ReadonlyMap<string, readonly string[]> | undefined;
     private pollSignals;
     private applySignalRows;
     private noteStoreUnavailable;

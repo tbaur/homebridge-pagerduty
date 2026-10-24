@@ -164,7 +164,13 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
       this.log.warn(warning)
     }
     const changes = this.syncAccessories(accessories, config.heldAlertIds)
-    const report = formatStartupReport({ config, accessories, pluginVersion: this.pluginVersion, changes })
+    const report = formatStartupReport({
+      config,
+      accessories,
+      pluginVersion: this.pluginVersion,
+      changes,
+      signalsWritten: controller.signalsWritten(),
+    })
     for (const line of report) {
       this.log.info(line)
     }

@@ -144,7 +144,7 @@
               "examples": [
                 "homebridge-example/sump-high"
               ],
-              "description": "Advanced. Follow a signal from another plugin, written as package/signal. The alert must have one level."
+              "description": "Optional. Lets another plugin turn this switch on and off. Enter the plugin's package name and one of its signal names, with a slash between them. The plugin's documentation lists its signals, and the Homebridge log lists them at startup. Use with an alert that has one level."
             }
           }
         }
@@ -330,6 +330,7 @@
                 },
                 {
                   "key": "alerts[].signal",
+                  "placeholder": "homebridge-example/sump-high",
                   "condition": {
                     "functionBody": "return (model.signals?.sources ?? []).length > 0;"
                   }
