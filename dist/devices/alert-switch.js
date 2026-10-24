@@ -1,0 +1,50 @@
+"use strict";
+/**
+ * Copyright (c) 2026 tbaur
+ *
+ * Licensed under the Apache License, Version 2.0
+ * See LICENSE file for full license text
+ *
+ * @fileoverview One severity level of one alert, as a HomeKit switch.
+ *
+ * Each level is its own accessory, not a second service on one accessory. The
+ * Home app groups the services of one accessory into one tile, and tapping a
+ * grouped tile turns all of its switches on at once, which would page at the
+ * highest severity by accident.
+ *
+ * On means "this condition is present". A write updates desired state and
+ * returns; the reconciler decides what, if anything, goes to PagerDuty.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.AlertSwitch = void 0;
+const base_accessory_1 = require("./base-accessory");
+/** One level switch. */
+class AlertSwitch extends base_accessory_1.BaseAccessory {
+    service;
+    alertId;
+    severity;
+    constructor(init) {
+        super(init);
+        this.alertId = init.alertId;
+        this.severity = init.severity;
+        const { Characteristic, Service: HapService } = this.host.hap;
+        this.service = this.requireService(HapService.Switch);
+        this.service.setCharacteristic(Characteristic.Name, this.displayName);
+        this.service
+            .getCharacteristic(Characteristic.On)
+            .onGet(() => this.readOn())
+            .onSet((value) => this.writeOn(value));
+    }
+    readOn() {
+        this.requireAvailable();
+        return this.host.isLevelOn(this.alertId, this.severity);
+    }
+    writeOn(value) {
+        this.requireAvailable();
+        this.host.setLevel(this.alertId, this.severity, value === true);
+    }
+    publishState() {
+        this.publish(this.service, this.host.hap.Characteristic.On, this.host.isLevelOn(this.alertId, this.severity));
+    }
+}
+exports.AlertSwitch = AlertSwitch;

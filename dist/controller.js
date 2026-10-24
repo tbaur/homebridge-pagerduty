@@ -1,0 +1,508 @@
+"use strict";
+/**
+ * Copyright (c) 2026 tbaur
+ *
+ * Licensed under the Apache License, Version 2.0
+ * See LICENSE file for full license text
+ *
+ * @fileoverview The alert controller: state, persistence, timers, the signal
+ * poll and the sender, wired together.
+ *
+ * Every rule lives elsewhere: in `state/mutations.ts` (what a change does),
+ * `state/desired.ts` and `state/reconcile.ts` (what must be sent), and
+ * `delivery/sender.ts` (how). This file decides *when* each runs, persists the
+ * result, and tells the platform that HomeKit should be refreshed.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.AlertController = void 0;
+const node_path_1 = require("node:path");
+const health_1 = require("./delivery/health");
+const events_1 = require("./delivery/events");
+const http_1 = require("./delivery/http");
+const sender_1 = require("./delivery/sender");
+const settings_1 = require("./settings");
+const schema_1 = require("./signals/schema");
+const reader_1 = require("./signals/reader");
+const desired_1 = require("./state/desired");
+const model_1 = require("./state/model");
+const mutations_1 = require("./state/mutations");
+const reconcile_1 = require("./state/reconcile");
+const store_1 = require("./state/store");
+const errors_1 = require("./utils/errors");
+const redact_1 = require("./utils/redact");
+const EMPTY_PLAN = { sendable: [], heldByMaintenance: [], rejected: [] };
+/** Owns desired and delivered state and keeps PagerDuty in line with it. */
+class AlertController {
+    options;
+    config;
+    log;
+    now;
+    store;
+    sender;
+    health = new health_1.DeliveryHealth();
+    alertsById = new Map();
+    boundAlerts = new Map();
+    listeners = [];
+    abort = new AbortController();
+    knownForeignWriters = new Set();
+    outageGapKeys = new Set();
+    state;
+    plan = EMPTY_PLAN;
+    fault = false;
+    reader;
+    storeUnreadableSince = null;
+    lastStoreWarnAt = 0;
+    pendingRowSweep = false;
+    started = false;
+    stopped = false;
+    timers = {};
+    constructor(options) {
+        this.options = options;
+        this.config = options.config;
+        this.log = options.log;
+        this.now = options.now ?? Date.now;
+        for (const alert of this.config.alerts) {
+            this.alertsById.set(alert.id, alert);
+            if (alert.signal !== undefined) {
+                this.boundAlerts.set((0, schema_1.signalRefKey)(alert.signal), alert);
+            }
+        }
+        this.store = options.store ?? new store_1.StateStore({
+            path: (0, node_path_1.join)(options.storageDir, settings_1.DATA_DIR_NAME, settings_1.STATE_FILE_NAME),
+            log: this.log,
+            persistDelivery: !this.config.options.dryRun,
+            now: this.now,
+        });
+        this.sender = new sender_1.Sender({
+            nextAction: () => this.reconcileNow().sendable[0],
+            post: (action) => this.post(action),
+            onDelivered: (action) => this.recordDelivered(action),
+            onRejected: (action, reason) => this.recordRejected(action, reason),
+            countSuperseded: (keys) => this.countSuperseded(keys),
+            log: this.log,
+            now: this.now,
+            ...(options.random === undefined ? {} : { random: options.random }),
+            ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+            ...(options.onRequest === undefined ? {} : { onRequest: options.onRequest }),
+        });
+    }
+    // --- Lifecycle ---------------------------------------------------------------
+    /**
+     * Load state and start delivering.
+     *
+     * Throws `StateUnreadableError` when the state directory cannot be created
+     * or the state file exists but cannot be read; the platform then disables
+     * itself.
+     */
+    start() {
+        const loaded = this.store.load();
+        const state = loaded.state;
+        this.state = state;
+        this.warnAboutKeyChange((0, mutations_1.applyKeyChange)(state, (0, store_1.fingerprintRoutingKey)(this.config.routingKey)));
+        if (loaded.outcome === 'corrupt') {
+            this.sweepClosedAlerts();
+            this.pendingRowSweep = this.config.signalSources.length > 0;
+        }
+        (0, mutations_1.pruneRows)(state, this.config.signalSources);
+        this.forgetRemovedAlerts();
+        if (state.maintenance.on && !this.config.maintenance.switch) {
+            (0, mutations_1.applyMaintenance)(state, { on: false, at: this.now(), maxMinutes: this.config.maintenance.maxMinutes });
+            this.log.info('maintenance ended: maintenance.switch is off in config');
+        }
+        this.handleDeadlines();
+        this.persist();
+        this.startSignals();
+        this.timers.health = setInterval(() => this.updateFault(), settings_1.DELIVERY_HEALTH_TICK_MS);
+        this.timers.health.unref();
+        this.started = true;
+        this.kick();
+    }
+    /** Stop timers and the sender, close the store, and finish writing state. */
+    async stop() {
+        this.stopped = true;
+        clearTimeout(this.timers.deadline);
+        clearInterval(this.timers.poll);
+        clearInterval(this.timers.health);
+        this.abort.abort();
+        await this.sender.stop();
+        this.reader?.close();
+        await this.store.flush();
+    }
+    /** Called after any change HomeKit should see. */
+    onChange(listener) {
+        this.listeners.push(listener);
+    }
+    // --- HomeKit-facing ------------------------------------------------------------
+    isLevelOn(alertId, severity) {
+        return this.requireState().levels[(0, model_1.levelKey)(alertId, severity)]?.on === true;
+    }
+    /** A switch write. Updates desired state, persists it, wakes the sender and returns. */
+    setLevel(alertId, severity, on) {
+        const alert = this.alertsById.get(alertId);
+        if (alert === undefined || this.stopped) {
+            return;
+        }
+        const state = this.requireState();
+        const wasOn = state.levels[(0, model_1.levelKey)(alertId, severity)]?.on === true;
+        if (!(0, mutations_1.applyLevelWrite)(state, alert, { severity, on, at: this.now() })) {
+            return;
+        }
+        if (wasOn !== on) {
+            this.log.info(`${(0, redact_1.forLog)(levelName(alert, severity))}: switched ${on ? 'on' : 'off'}`);
+        }
+        this.persist();
+        this.scheduleDeadline();
+        this.kick();
+    }
+    isMaintenanceOn() {
+        return this.requireState().maintenance.on;
+    }
+    setMaintenance(on) {
+        if (!this.config.maintenance.switch || this.stopped) {
+            return;
+        }
+        const { maxMinutes } = this.config.maintenance;
+        if (!(0, mutations_1.applyMaintenance)(this.requireState(), { on, at: this.now(), maxMinutes })) {
+            return;
+        }
+        this.log.info(on
+            ? `maintenance on: new pages are held for up to ${maxMinutes} min; resolves still go out`
+            : 'maintenance off: sending anything still active');
+        this.persist();
+        this.scheduleDeadline();
+        this.kick();
+    }
+    isDeliveryFault() {
+        return this.fault;
+    }
+    /** Live counts for diagnostics. */
+    gauges() {
+        return {
+            openAlerts: Object.keys(this.requireState().delivered).length,
+            pending: this.plan.sendable.length,
+            heldByMaintenance: this.plan.heldByMaintenance.length,
+            rejected: this.plan.rejected.length,
+            deliveryFault: this.fault,
+            storeOk: this.config.signalSources.length === 0 ? null : this.storeUnreadableSince === null,
+            outage: this.sender.inOutage,
+        };
+    }
+    // --- Reconcile and send --------------------------------------------------------
+    kick() {
+        this.reconcileNow();
+        this.sender.wake();
+        this.notify();
+    }
+    reconcileNow() {
+        const state = this.requireState();
+        const plan = (0, reconcile_1.reconcile)({
+            desired: (0, desired_1.computeDesired)(this.config, state),
+            delivered: state.delivered,
+            rejected: state.rejected,
+            maintenanceOn: state.maintenance.on,
+            hashContext: {
+                routingKeyFingerprint: state.routingKeyFingerprint ?? '',
+                region: this.config.region,
+                pluginVersion: this.options.pluginVersion,
+            },
+        });
+        this.pruneRejections(plan);
+        this.health.observe(plan, this.now());
+        if (this.sender.inOutage) {
+            for (const action of plan.sendable) {
+                if (action.kind === 'trigger') {
+                    this.outageGapKeys.add(action.key);
+                }
+            }
+        }
+        this.plan = plan;
+        this.updateFault();
+        return plan;
+    }
+    /** A rejection stops counting once the desired state no longer matches it. */
+    pruneRejections(plan) {
+        const state = this.requireState();
+        const outstanding = new Set(plan.rejected);
+        let pruned = false;
+        for (const key of Object.keys(state.rejected)) {
+            if (!outstanding.has(key)) {
+                delete state.rejected[key];
+                pruned = true;
+            }
+        }
+        if (pruned) {
+            this.persist();
+        }
+    }
+    post(action) {
+        if (this.config.options.dryRun) {
+            const what = action.kind === 'trigger' ? `trigger (${action.severity})` : 'resolve';
+            this.log.info(`dry run: would send ${what} for ${(0, redact_1.forLog)(action.label)} as ${(0, redact_1.forLog)(action.dedupKey)}`);
+            return Promise.resolve({ status: 202, body: '', headers: {} });
+        }
+        const body = (0, events_1.buildEvent)(action, { routingKey: this.config.routingKey, source: this.config.source });
+        return (this.options.post ?? http_1.postJson)(settings_1.EVENTS_URLS[this.config.region], body, {
+            connectTimeoutMs: settings_1.CONNECT_TIMEOUT_MS,
+            totalTimeoutMs: settings_1.REQUEST_TIMEOUT_MS,
+            maxBytes: settings_1.MAX_RESPONSE_BYTES,
+            signal: this.abort.signal,
+        });
+    }
+    /** Record what was *sent*, never the desired state at the moment the answer arrives. */
+    recordDelivered(action) {
+        const state = this.requireState();
+        if (action.kind === 'trigger') {
+            const existing = state.delivered[action.key];
+            state.delivered[action.key] = {
+                dedupKey: action.dedupKey,
+                severity: action.severity,
+                openedAt: existing?.dedupKey === action.dedupKey ? existing.openedAt : this.now(),
+            };
+        }
+        else if (state.delivered[action.key]?.dedupKey === action.dedupKey) {
+            delete state.delivered[action.key];
+        }
+        delete state.rejected[action.key];
+        this.persist();
+        this.notify();
+    }
+    recordRejected(action, reason) {
+        this.requireState().rejected[action.key] = { desiredHash: action.hash, at: this.now(), reason };
+        this.log.warn(`${(0, redact_1.forLog)(action.label)}: PagerDuty rejected the ${action.kind}: ${reason}. Not retried until the alert changes`);
+        this.persist();
+        this.reconcileNow();
+        this.notify();
+    }
+    /** Alerts that had an unsent trigger during the outage and are now closed with nothing delivered. */
+    countSuperseded(keys) {
+        const state = this.requireState();
+        const desired = (0, desired_1.computeDesired)(this.config, state);
+        let count = 0;
+        for (const key of new Set([...keys, ...this.outageGapKeys])) {
+            if (desired.get(key)?.open !== true && state.delivered[key] === undefined) {
+                count += 1;
+            }
+        }
+        this.outageGapKeys.clear();
+        return count;
+    }
+    // --- Timers --------------------------------------------------------------------
+    handleDeadlines() {
+        const state = this.requireState();
+        const now = this.now();
+        let changed = false;
+        for (const alert of (0, mutations_1.expireResolveTimers)(state, this.config.alerts, now)) {
+            this.log.info(`${(0, redact_1.forLog)(alert.name)}: resolve timer expired; switched off`);
+            changed = true;
+        }
+        if (state.maintenance.on && state.maintenance.until !== null && state.maintenance.until <= now) {
+            (0, mutations_1.applyMaintenance)(state, { on: false, at: now, maxMinutes: this.config.maintenance.maxMinutes });
+            this.log.warn(`maintenance turned itself off after ${this.config.maintenance.maxMinutes} min; paging is back on`);
+            changed = true;
+        }
+        if (changed) {
+            this.persist();
+            if (this.started) {
+                this.kick();
+            }
+        }
+        this.scheduleDeadline();
+    }
+    scheduleDeadline() {
+        clearTimeout(this.timers.deadline);
+        this.timers.deadline = undefined;
+        const deadline = (0, mutations_1.nextDeadline)(this.requireState(), this.config.alerts);
+        if (deadline === undefined || this.stopped) {
+            return;
+        }
+        // setTimeout overflows past 2^31-1 ms and fires at once; re-arm instead.
+        const delay = Math.min(Math.max(0, deadline - this.now()), 2_147_483_647);
+        this.timers.deadline = setTimeout(() => this.handleDeadlines(), delay);
+        this.timers.deadline.unref();
+    }
+    // --- Delivery sensor -------------------------------------------------------------
+    updateFault() {
+        const fault = this.health.isFault({
+            plan: this.plan,
+            now: this.now(),
+            storeUnreadableSince: this.storeUnreadableSince,
+        });
+        if (fault !== this.fault) {
+            this.fault = fault;
+            this.notify();
+        }
+    }
+    notify() {
+        for (const listener of this.listeners) {
+            try {
+                listener();
+            }
+            catch (error) {
+                this.log.debug(`change listener failed: ${(0, errors_1.describeError)(error)}`);
+            }
+        }
+    }
+    // --- Signal store ----------------------------------------------------------------
+    startSignals() {
+        if (this.config.signalSources.length === 0) {
+            return;
+        }
+        const path = (0, node_path_1.join)(this.options.storageDir, settings_1.DATA_DIR_NAME, settings_1.SIGNAL_STORE_FILE_NAME);
+        const create = this.options.createReader
+            ?? ((file, sources) => new reader_1.SignalReader({ path: file, sources, log: this.log }));
+        this.reader = create(path, this.config.signalSources);
+        try {
+            this.reader.create();
+        }
+        catch (error) {
+            this.noteStoreUnavailable((0, errors_1.describeError)(error));
+        }
+        this.pollSignals();
+        this.timers.poll = setInterval(() => this.pollSignals(), settings_1.SIGNAL_POLL_MS);
+        this.timers.poll.unref();
+    }
+    pollSignals() {
+        const result = this.reader?.poll();
+        if (result === undefined || this.stopped) {
+            return;
+        }
+        if (result.kind === 'unavailable') {
+            this.noteStoreUnavailable(result.reason);
+            return;
+        }
+        this.noteStoreAvailable();
+        if (result.kind === 'rows') {
+            this.applySignalRows(result);
+        }
+    }
+    applySignalRows(result) {
+        for (const plugin of result.foreignWriters) {
+            if (!this.knownForeignWriters.has(plugin)) {
+                this.knownForeignWriters.add(plugin);
+                this.log.info(`signal store: ${(0, redact_1.forLog)(plugin)} writes signals but is not in signals.sources; ignored`);
+            }
+        }
+        if (result.invalidRows > 0) {
+            this.log.debug(`signal store: ${result.invalidRows} row(s) failed validation and were ignored`);
+        }
+        if (!result.complete) {
+            this.log.warn('signal store holds more rows than are read; rows that have gone are not cleared until it shrinks');
+        }
+        const state = this.requireState();
+        const applied = (0, mutations_1.applyRows)(state, {
+            rows: result.rows,
+            complete: result.complete,
+            sources: this.config.signalSources,
+            boundAlerts: this.boundAlerts,
+            now: this.now(),
+        });
+        const swept = this.pendingRowSweep && this.sweepClosedRows();
+        this.pendingRowSweep = false;
+        if (applied.dirty || swept) {
+            this.persist();
+            this.scheduleDeadline();
+        }
+        if (applied.changed.length > 0 || swept) {
+            this.kick();
+        }
+    }
+    noteStoreUnavailable(reason) {
+        const now = this.now();
+        this.storeUnreadableSince ??= now;
+        const line = `signal store unavailable (${reason}); keeping the last rows read`;
+        if (reason !== 'busy' && now - this.lastStoreWarnAt >= settings_1.OUTAGE_REWARN_MS) {
+            this.lastStoreWarnAt = now;
+            this.log.warn(line);
+        }
+        else {
+            this.log.debug(line);
+        }
+        this.updateFault();
+    }
+    noteStoreAvailable() {
+        if (this.storeUnreadableSince === null) {
+            return;
+        }
+        if (this.lastStoreWarnAt > 0) {
+            this.log.info('signal store readable again');
+        }
+        this.storeUnreadableSince = null;
+        this.lastStoreWarnAt = 0;
+        this.updateFault();
+    }
+    // --- Startup housekeeping ------------------------------------------------------------
+    warnAboutKeyChange(orphaned) {
+        if (orphaned.length === 0) {
+            return;
+        }
+        const names = orphaned.map((key) => (0, redact_1.forLog)(this.labelFor(key))).join(', ');
+        this.log.warn(`the integration key changed while ${orphaned.length} alert(s) were open: ${names}. `
+            + 'PagerDuty ignores a resolve sent on a different key, so resolve these in PagerDuty by hand. '
+            + 'Anything still active is being sent on the new key');
+    }
+    /**
+     * After a corrupt state file, mark every alert that is desired closed as
+     * possibly open, so the reconciler sends it a resolve. A resolve with no
+     * open alert is dropped by PagerDuty with a `202`, so this is safe.
+     */
+    sweepClosedAlerts() {
+        const state = this.requireState();
+        const desired = (0, desired_1.computeDesired)(this.config, state);
+        let count = 0;
+        for (const alert of this.config.alerts) {
+            const target = desired.get((0, model_1.alertTargetKey)(alert.id));
+            if (target !== undefined && !target.open && state.delivered[target.key] === undefined) {
+                state.delivered[target.key] = { dedupKey: target.dedupKey, severity: 'info', openedAt: this.now() };
+                count += 1;
+            }
+        }
+        if (count > 0) {
+            this.log.warn(`sending resolve for ${count} alert(s) the lost state file may have left open`);
+        }
+    }
+    /** The same sweep for unbound rows, once the first read says which exist. */
+    sweepClosedRows() {
+        const state = this.requireState();
+        const desired = (0, desired_1.computeDesired)(this.config, state);
+        let swept = false;
+        for (const target of desired.values()) {
+            if (target.key.startsWith('signal:') && !target.open && state.delivered[target.key] === undefined) {
+                state.delivered[target.key] = { dedupKey: target.dedupKey, severity: 'info', openedAt: this.now() };
+                swept = true;
+            }
+        }
+        return swept;
+    }
+    /** Drop switch and timer state for alerts removed from config. Their delivered records stay, so they are resolved. */
+    forgetRemovedAlerts() {
+        const state = this.requireState();
+        const kept = new Set([...this.alertsById.keys(), ...this.config.heldAlertIds]);
+        for (const key of Object.keys(state.levels)) {
+            if (!kept.has(key.slice(0, key.lastIndexOf(':')))) {
+                delete state.levels[key];
+            }
+        }
+        for (const id of Object.keys(state.alerts)) {
+            if (!kept.has(id)) {
+                delete state.alerts[id];
+            }
+        }
+    }
+    labelFor(targetKey) {
+        const alert = this.alertsById.get(targetKey.replace(/^alert:/, ''));
+        return alert?.name ?? targetKey.replace(/^(?:alert|signal):/, '');
+    }
+    persist() {
+        void this.store.save(this.requireState());
+    }
+    requireState() {
+        if (this.state === undefined) {
+            throw new Error('controller used before start()');
+        }
+        return this.state;
+    }
+}
+exports.AlertController = AlertController;
+function levelName(alert, severity) {
+    return alert.levels.find((level) => level.severity === severity)?.name ?? alert.name;
+}

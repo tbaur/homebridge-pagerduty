@@ -1,0 +1,112 @@
+name: Tests
+
+# The README badge shows the latest run on main. A pull-request run does not
+# count, so this push is what keeps the badge current after each merge.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+    branches: [ main ]
+
+# Least privilege: these jobs only read the repo and run build/lint/test.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        # 22.13.0 is the engines floor: the first 22.x where `node:sqlite` loads
+        # without a startup flag. `22.x` alone would only ever test the newest.
+        node-version: [22.13.0, 22.x, 24.x, 26.x]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build TypeScript
+      run: npm run build
+
+    # dist/ is committed (so git installs work); fail if it drifted from src/
+    # or if build produced untracked files under dist/ that were not committed.
+    - name: Verify committed dist is in sync with src
+      run: |
+        if [ -n "$(git status --porcelain -- dist)" ]; then
+          echo "dist/ is dirty or has untracked files after build:"
+          git status --porcelain -- dist
+          exit 1
+        fi
+        git diff --exit-code -- dist
+
+    - name: Run linter
+      run: npm run lint
+
+    - name: Type-check tests against production settings
+      run: npx tsc --noEmit -p tsconfig.test.json
+
+    - name: Run tests
+      run: npm test
+      env:
+        NODE_ENV: test
+
+    - name: Upload coverage to artifacts
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      if: matrix.node-version == '22.x'
+      with:
+        name: coverage-report
+        path: coverage/
+        retention-days: 7
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      with:
+        node-version: '24.x'
+        cache: 'npm'
+    - run: npm ci
+    # Gates the release. There are no runtime dependencies, so this passes
+    # unless one is added; it is here so that adding one is never silent.
+    - name: Audit runtime dependencies
+      run: npm audit --omit=dev --audit-level=moderate
+    # Dev dependencies are the real surface (and the reason the overrides in
+    # package.json exist), but a transitive advisory there should not block a
+    # release, so this reports without failing.
+    - name: Audit development dependencies
+      run: npm audit --audit-level=high || echo "::warning::Development dependency advisories found; review npm audit output"
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    # This plugin holds a PagerDuty integration key, and anyone holding one can
+    # page the people on that service. Tests that need the shape assemble it
+    # at runtime (`tests/helpers/secrets.ts`) so no file contains a key next to
+    # its field name. The same grep runs in `tests/unit/secrets-scan.test.ts`.
+    - name: Reject credential-shaped strings
+      run: |
+        set -euo pipefail
+        patterns='(routing_key|routingKey|ROUTING_KEY)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9]{32}'
+        if grep -rInE "$patterns" \
+             --exclude-dir=node_modules --exclude-dir=coverage --exclude-dir=.git \
+             README.md CONTRIBUTING.md SECURITY.md DEVELOPMENT.md RELEASING.md \
+             CHANGELOG.md docs src tests scripts dist \
+             config.schema.json .github ; then
+          echo "::error::A value shaped like a PagerDuty integration key is committed."
+          exit 1
+        fi
+        echo "No credential-shaped strings found."

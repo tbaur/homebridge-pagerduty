@@ -1,0 +1,50 @@
+# Dependabot keeps dependencies current. This plugin has no runtime
+# dependencies, so every npm update is a development one; they are grouped to
+# reduce noise.
+#
+# Runtime bumps would be prefixed `fix` and development bumps `chore`, because
+# only the former have to reach users: release-please cuts a patch for a `fix`
+# and no release at all for a `chore`.
+# See: https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "fix"
+      prefix-development: "chore"
+    ignore:
+      # TypeScript 7.0 dropped the compiler API that typescript-eslint 8 and
+      # ts-jest still import. Language-identical to 6; stay until 7.1.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # @types/node tracks the engines floor (22.13), or the compiler accepts an
+      # API that does not exist on the oldest runtime a user may be on. That
+      # matters here because `node:sqlite` gained options across 22.x, 24.x
+      # and 26.x. Raise both together, deliberately.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+    groups:
+      # Batch only low-risk patch/minor development updates so they stay
+      # auto-mergeable. Major bumps (e.g. eslint, jest, typescript, homebridge
+      # types) are left out of the group so each arrives as its own PR.
+      dev-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
