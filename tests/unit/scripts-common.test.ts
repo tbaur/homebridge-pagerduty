@@ -17,9 +17,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 
-import { SIGNAL_SCHEMA_SQL, SIGNAL_SCHEMA_VERSION } from '../../src/signals/schema'
+import { SIGNAL_SCHEMA_SQL } from '../../src/signals/schema'
 import { SignalReader } from '../../src/signals/reader'
-import { DATA_DIR_NAME, SIGNAL_STORE_FILE_NAME } from '../../src/settings'
+import { DATA_DIR_NAME, SIGNAL_INTERFACE_ID, SIGNAL_STORE_FILE_NAME } from '../../src/settings'
 import { fakeLogger } from '../helpers/hap'
 import { FAKE_ROUTING_KEY } from '../helpers/secrets'
 
@@ -34,6 +34,7 @@ interface CommonLib {
 interface ReferenceWriter {
   SCHEMA: string
   STORE_DIR: string
+  INTERFACE_ID: string
   STORE_FILE: string
   openStore(storageDir: string): DatabaseSync
   writeSignal(db: DatabaseSync, signal: {
@@ -137,6 +138,7 @@ describe('reference writer', () => {
   it('carries the published schema verbatim and the plugin\'s path', () => {
     expect(writer().SCHEMA).toBe(SIGNAL_SCHEMA_SQL)
     expect(writer().STORE_DIR).toBe(DATA_DIR_NAME)
+    expect(writer().INTERFACE_ID).toBe(SIGNAL_INTERFACE_ID)
     expect(writer().STORE_FILE).toBe(SIGNAL_STORE_FILE_NAME)
   })
 
@@ -149,7 +151,7 @@ describe('reference writer', () => {
       db.close()
     }
 
-    const storeFile = join(dir, DATA_DIR_NAME, SIGNAL_STORE_FILE_NAME)
+    const storeFile = join(dir, DATA_DIR_NAME, SIGNAL_INTERFACE_ID, SIGNAL_STORE_FILE_NAME)
     reader = new SignalReader({ path: storeFile, allowed: ['homebridge-example'], log: fakeLogger() })
     const result = reader.poll()
 
@@ -158,20 +160,9 @@ describe('reference writer', () => {
       .toEqual(['door:false:info', 'sump-high:true:critical'])
     if (process.platform !== 'win32') {
       expect(statSync(join(dir, DATA_DIR_NAME)).mode & 0o777).toBe(0o700)
+      expect(statSync(join(dir, DATA_DIR_NAME, SIGNAL_INTERFACE_ID)).mode & 0o777).toBe(0o700)
       expect(statSync(storeFile).mode & 0o777).toBe(0o600)
     }
-  })
-
-  it('sets the interface version on a new store and refuses a newer one', () => {
-    const first = writer().openStore(dir)
-    try {
-      expect(first.prepare('PRAGMA user_version').get()).toEqual({ user_version: SIGNAL_SCHEMA_VERSION })
-      first.exec(`PRAGMA user_version = ${SIGNAL_SCHEMA_VERSION + 1}`)
-    } finally {
-      first.close()
-    }
-
-    expect(() => writer().openStore(dir)).toThrow(/interface version 2; this writer knows 1/)
   })
 
   it('lets SQLite reject a malformed row inside the writer', () => {

@@ -71,7 +71,7 @@ Allow this plugin to page is about consent. It stops a plugin from paging your o
 ### What your plugin does
 
 1. Open the store file at a fixed path in the Homebridge storage directory.
-2. Create the table with the exact SQL below, and check the interface version.
+2. Create the table with the exact SQL below.
 3. Write one row for each condition: once at startup, then whenever the condition changes.
 4. Tell your users to check **Allow this plugin to page** for your plugin under **Plugin Signals** in this plugin's settings. Until they do, this plugin ignores your rows.
 
@@ -84,10 +84,12 @@ Your plugin does not need to know whether `homebridge-pagerduty` is installed. W
 ### File location
 
 ```text
-<storage>/homebridge-pagerduty/signals.sqlite
+<storage>/homebridge-pagerduty/signals-2026-10-24/signals.sqlite
 ```
 
-`<storage>` is `api.user.storagePath()`, the directory that holds `config.json`. Every child bridge on an install uses the same storage directory, so your plugin can reach the file from any bridge. The path will not change within interface version 1.
+`<storage>` is `api.user.storagePath()`, the directory that holds `config.json`. Every child bridge on an install uses the same storage directory, so your plugin can reach the file from any bridge. `signals-2026-10-24` is the interface identifier. See [Interface identifier](#interface-identifier).
+
+homebridge-pagerduty 1.x read `<storage>/homebridge-pagerduty/signals.sqlite`. Version 2 does not read that file. At startup it logs a `warn` that names each plugin that still writes there and nowhere else.
 
 Keep the store on a local disk. SQLite's WAL mode does not work on network filesystems.
 
@@ -116,20 +118,27 @@ Do not change it. `CREATE TABLE IF NOT EXISTS` lets the first process that runs 
 | `signal` | Your name for the condition, such as `sump-high`. Lowercase letters, digits, dot, underscore and hyphen, up to 64 characters. |
 | `active` | `1` while the condition is present. `0` once it has cleared. |
 | `severity` | `info`, `warning`, `error` or `critical`, in lowercase. If the PagerDuty service uses alert severity to set urgency, `critical` and `error` are high urgency, and `warning` and `info` are low. |
-| `summary` | The alert title in PagerDuty, 1 to 1024 characters, with no control characters such as newlines. A row with one is ignored. Users also see it as the starting value of their PagerDuty Message setting, so write text that still reads well if it is saved as a fixed message. |
+| `summary` | The alert title in PagerDuty, 1 to 1024 characters, on one line. homebridge-pagerduty replaces control characters, such as newlines, with a space. Users also see it as the starting value of their PagerDuty Message setting, so write text that still reads well if it is saved as a fixed message. |
 | `updated_at` | The time of this write, in Unix milliseconds. PagerDuty shows it as the time that the condition changed. |
 
 The `CHECK` constraints reject a bad value at the moment you write it. The error appears in your plugin, close to the bug.
 
-### Interface version
+### Interface identifier
 
-`PRAGMA user_version` holds the interface version. It is currently `1`.
+The directory that holds the store names its interface: the path, the table definition, and the rules on this page. The current identifier is `signals-2026-10-24`, the date that this interface was defined. The identifier is separate from homebridge-pagerduty's version number, so it does not change with a release.
 
-| You read | What it means | What to do |
-|---|---|---|
-| `0` | The store is new. | Set it to `1`. |
-| `1` | This interface. | Write as normal. |
-| Higher than `1` | A newer interface created the store. | Do not write. Log that your plugin needs an update. |
+What homebridge-pagerduty promises:
+
+- **A new identifier only for a breaking change.** That means a change that a writer built for the current identifier would get wrong. Several major versions in a row can use the same identifier.
+- **Old identifiers keep working until a major version.** If a minor release introduces a new identifier, it reads both the old and the new one, and so does every later release with the same major version. Only a later major version stops reading the old one. Its release notes say so, and at startup it logs a `warn` that names each plugin still writing there.
+- **Within one identifier, nothing that you rely on changes.** homebridge-pagerduty may accept more than it did before. It may also add a column that has a default value, which your plugin can ignore. It never needs a change from your plugin.
+
+What your plugin does:
+
+- **Write to one identifier,** the one in the code that you copied. Do not look for other directories, and do not write to two at once. When you move to a new identifier, stop writing to the old one in the same release.
+- **Name the columns in every `INSERT`,** as the code below does, so that a column added later does not break your writes.
+- **Never alter, drop or rebuild the table,** and never touch rows from other plugins.
+- **Do not read or set `PRAGMA user_version`.** The directory names the interface.
 
 ### Rules
 
@@ -138,7 +147,6 @@ The `CHECK` constraints reject a bad value at the moment you write it. The error
    2. Create the file owner-only: `fs.closeSync(fs.openSync(file, 'a', 0o600))`.
    3. Open the file read-write, and set `PRAGMA busy_timeout` to 1000 ms or less.
    4. Run the table definition.
-   5. Check the interface version.
 
    Keep the busy timeout short. `node:sqlite` is synchronous, so while it waits for a lock, your whole bridge process waits too.
 2. **Open the store once and keep the connection.**
@@ -169,7 +177,7 @@ function openStore(storageDir) {
   if (sqlite === undefined) {
     throw new Error('the signal store needs Node 22.13 or later')
   }
-  const dir = path.join(storageDir, 'homebridge-pagerduty')
+  const dir = path.join(storageDir, 'homebridge-pagerduty', 'signals-2026-10-24')
   const file = path.join(dir, 'signals.sqlite')
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   fs.closeSync(fs.openSync(file, 'a', 0o600))
@@ -177,12 +185,6 @@ function openStore(storageDir) {
   try {
     db.exec('PRAGMA busy_timeout = 1000')
     db.exec(SCHEMA)
-    const version = Number(db.prepare('PRAGMA user_version').get().user_version)
-    if (version === 0) {
-      db.exec('PRAGMA user_version = 1')
-    } else if (version > 1) {
-      throw new Error(`signal store is interface version ${version}; not writing`)
-    }
     return db
   } catch (error) {
     db.close()
@@ -230,7 +232,7 @@ With the user's settings left alone:
 | Event field | Value |
 |---|---|
 | `dedup_key` | `<source>/<plugin>/<signal>`. `<source>` is the user's `source` setting, `homebridge` by default. |
-| `payload.summary` | Your `summary` |
+| `payload.summary` | Your `summary`, with each run of control characters replaced by a space |
 | `payload.severity` | Your `severity` |
 | `payload.timestamp` | Your `updated_at`. If it is in the future, the time that the plugin read the row. |
 | `payload.component` | Your `signal` |
@@ -247,4 +249,4 @@ The user can change the title and severity of each signal, let it page during ma
 
 **Allowing a plugin is not authentication.** Any process that runs as the Homebridge user can write any `plugin` value. The setting stops a well-behaved plugin from paging people who never asked it to. It does not stop harmful code, and it does not need to: code that runs as that user can already read `config.json` and the integration key in it.
 
-The plugin creates the `homebridge-pagerduty` directory owner-only (`0700`). It creates the store and its `-wal` and `-shm` files owner-only (`0600`). If it finds them with looser permissions, it tightens them and logs that.
+The plugin creates the `homebridge-pagerduty` directory, and the interface directory inside it, owner-only (`0700`). It creates the store and its `-wal` and `-shm` files owner-only (`0600`). If it finds them with looser permissions, it tightens them and logs that.

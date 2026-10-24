@@ -31,7 +31,7 @@ If a key leaks, delete the integration in PagerDuty, create a new one, and put t
 - **Escaped log values.** Alert names, summaries and anything written by another plugin pass through `forLog`, which escapes control characters and caps length. A value cannot inject a fake log line or terminal escape codes.
 - **Input validation.** Config is checked at startup. A missing key starts nothing. An unusable config disables the platform without unregistering accessories. A bad alert entry is held until it is fixed.
 - **Bounded I/O.** Separate connect and total timeouts on every request, a 64 KiB response cap, and no redirects followed.
-- **Owner-only files.** The plugin writes to one `homebridge-pagerduty` directory inside the Homebridge storage directory, created with mode `0700`, plus the settings screen file `.homebridge-pagerduty-v1.schema.json` next to it, where the Homebridge UI looks for it. The state file, the settings screen file and the signal store, including its `-wal` and `-shm` files, are created with mode `0600`. Store files found with a looser mode are tightened, and the plugin logs that.
+- **Owner-only files.** The plugin writes to one `homebridge-pagerduty` directory inside the Homebridge storage directory. That directory and the signal store's interface directory inside it are created with mode `0700`. The plugin also writes the settings screen file `.homebridge-pagerduty-v1.schema.json` next to it, where the Homebridge UI looks for it. The state file, the settings screen file and the signal store, including its `-wal` and `-shm` files, are created with mode `0600`. Store files found with a looser mode are tightened, and the plugin logs that.
 - **No runtime dependencies.** HTTPS and SQLite come from Node.
 - **Dependencies audited.** CI runs `npm audit` on the runtime tree and OSV-Scanner on the full tree.
 - **A CI step rejects key-shaped strings** in the docs, source, tests, scripts, schema and workflows, so a key cannot be committed by accident. Tests build their fake keys at runtime, and the suite refuses to run if `PAGERDUTY_ROUTING_KEY` is set.
@@ -39,7 +39,7 @@ If a key leaks, delete the integration in PagerDuty, create a new one, and put t
 
 ## The signal store
 
-Other plugins can raise alerts by writing rows to `homebridge-pagerduty/signals.sqlite` in the Homebridge storage directory. [docs/SIGNALS.md](docs/SIGNALS.md) is the interface, and [docs/SIGNALS-AGENT.md](docs/SIGNALS-AGENT.md) is the same interface written for coding agents.
+Other plugins can raise alerts by writing rows to `homebridge-pagerduty/signals-2026-10-24/signals.sqlite` in the Homebridge storage directory. [docs/SIGNALS.md](docs/SIGNALS.md) is the interface, and [docs/SIGNALS-AGENT.md](docs/SIGNALS-AGENT.md) is the same interface written for coding agents.
 
 **Allowing a plugin is not authentication.** The **Allow this plugin to page** setting stops a well-behaved plugin from paging someone who never asked it to. It does not stop hostile code: any process that runs as the Homebridge user can write a row under any package name. Such a process can also read `config.json`, and the key in it, so the store adds no new exposure.
 

@@ -32,12 +32,11 @@ const schema_1 = require("./schema");
 function loadNodeSqlite() {
     return process.getBuiltinModule('node:sqlite');
 }
-/** Polls `homebridge-pagerduty/signals.sqlite` for allowlisted rows. */
+/** Polls the signal store for allowlisted rows. */
 class SignalReader {
     options;
     connection;
     sqlite;
-    hasWarnedVersion = false;
     constructor(options) {
         this.options = options;
     }
@@ -101,7 +100,6 @@ class SignalReader {
             // Node 22.16, and the floor is 22.13.
             db.exec(`PRAGMA busy_timeout = ${settings_1.READER_BUSY_TIMEOUT_MS}`);
             db.exec(schema_1.SIGNAL_SCHEMA_SQL);
-            this.checkVersion(db);
             this.tightenModes();
             const placeholders = this.options.allowed.map(() => '?').join(', ');
             const stats = (0, node_fs_1.statSync)(this.options.path);
@@ -145,17 +143,6 @@ class SignalReader {
             .slice(0, settings_1.MAX_CATALOG_ROWS);
         connection.lastDataVersion = version;
         return { kind: 'rows', rows, complete: raw.length <= settings_1.MAX_SIGNAL_ROWS, catalog, invalidRows };
-    }
-    checkVersion(db) {
-        const row = db.prepare('PRAGMA user_version').get();
-        const version = Number(row?.user_version ?? 0);
-        if (version === 0) {
-            db.exec(`PRAGMA user_version = ${schema_1.SIGNAL_SCHEMA_VERSION}`);
-        }
-        else if (version > schema_1.SIGNAL_SCHEMA_VERSION && !this.hasWarnedVersion) {
-            this.hasWarnedVersion = true;
-            this.options.log.warn(`signal store is interface version ${version}; this plugin reads version ${schema_1.SIGNAL_SCHEMA_VERSION}. Update homebridge-pagerduty`);
-        }
     }
     /** Owner-only on POSIX systems, for the main file and SQLite's two side files. */
     tightenModes() {

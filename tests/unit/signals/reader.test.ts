@@ -84,13 +84,14 @@ describe('SignalReader', () => {
     }
   })
 
-  it('creates a missing parent directory owner-only', () => {
-    const nested = join(dir, 'homebridge-pagerduty', 'signals.sqlite')
+  it('creates the missing data and interface directories owner-only', () => {
+    const nested = join(dir, 'homebridge-pagerduty', 'signals-2026-10-24', 'signals.sqlite')
     reader({ path: nested }).create()
 
     expect(statSync(nested).isFile()).toBe(true)
     if (process.platform !== 'win32') {
       expect(statSync(join(dir, 'homebridge-pagerduty')).mode & 0o777).toBe(0o700)
+      expect(statSync(join(dir, 'homebridge-pagerduty', 'signals-2026-10-24')).mode & 0o777).toBe(0o700)
     }
   })
 
@@ -186,16 +187,16 @@ describe('SignalReader', () => {
     expect(rowsOf(subject.poll()).catalog).toEqual([{ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' }])
   })
 
-  it('rejects a row whose text has control characters', () => {
+  it('replaces control characters in a row\'s text with a space, so the row still pages', () => {
     const subject = reader()
     subject.create()
-    write([{ signal: 'door', active: 1, summary: 'Line one\nLine two' }, { signal: 'window', active: 1 }])
+    write([{ signal: 'door', active: 1, summary: 'Line one\r\nLine two\u0007' }])
 
     const result = rowsOf(subject.poll())
 
-    expect(result.rows.map((row) => row.signal)).toEqual(['window'])
-    expect(result.invalidRows).toBe(1)
-    expect(result.catalog.map((entry) => entry.signal)).toEqual(['window'])
+    expect(result.rows.map((row) => row.summary)).toEqual(['Line one Line two '])
+    expect(result.invalidRows).toBe(0)
+    expect(result.catalog.map((entry) => entry.summary)).toEqual(['Line one Line two '])
   })
 
   it('says the read was incomplete when it hit the cap', () => {
@@ -223,32 +224,13 @@ describe('SignalReader', () => {
     expect(result.invalidRows).toBe(1)
   })
 
-  it('warns once about a store from a newer interface version, across reopens', () => {
-    const log = fakeLogger()
-    const stampNewer = (): void => {
-      const db: DatabaseSync = new sqlite.DatabaseSync(path)
-      db.exec('PRAGMA user_version = 9')
-      db.close()
-    }
-    stampNewer()
-    const subject = reader({ log })
-    subject.create()
-    unlinkSync(path)
-    stampNewer()
-    subject.poll()
-
-    expect(log.lines('warn')).toEqual([
-      'signal store is interface version 9; this plugin reads version 1. Update homebridge-pagerduty',
-    ])
-  })
-
-  it('writes version 1 into a store it creates', () => {
+  it('leaves PRAGMA user_version alone, because the directory names the interface', () => {
     reader().create()
-    const db = new sqlite.DatabaseSync(path)
+    const db: DatabaseSync = new sqlite.DatabaseSync(path)
     const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
     db.close()
 
-    expect(version).toBe(1)
+    expect(version).toBe(0)
   })
 
   it('tightens a store that other users can read', () => {

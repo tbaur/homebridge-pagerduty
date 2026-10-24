@@ -10,15 +10,12 @@
  * `CREATE TABLE IF NOT EXISTS` means the first process to run it decides the
  * table. Every writer therefore runs this text unchanged; docs/SIGNALS.md
  * publishes it verbatim and a test asserts the two match. Changing it is an
- * interface change: raise {@link SIGNAL_SCHEMA_VERSION} and say why.
+ * interface change: it needs a new `SIGNAL_INTERFACE_ID`. See DEVELOPMENT.md.
  */
 
 import { CONTROL_CHARACTERS, MAX_SUMMARY_LENGTH, PLUGIN_NAME } from '../settings'
 import type { CatalogEntry, SignalRef, SignalRow } from '../types'
 import { isSeverity } from '../types'
-
-/** `PRAGMA user_version` for this schema. A writer that reads higher stops. */
-export const SIGNAL_SCHEMA_VERSION = 1
 
 /** The schema, verbatim. See the file header before changing a character. */
 export const SIGNAL_SCHEMA_SQL = `PRAGMA journal_mode = WAL;
@@ -39,6 +36,8 @@ CREATE TABLE IF NOT EXISTS signals (
 const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/
 
 const SIGNAL_NAME = /^[a-z0-9._-]{1,64}$/
+
+const CONTROL_CHARACTER_RUNS = new RegExp(`${CONTROL_CHARACTERS.source}+`, 'g')
 
 /** True for a value usable as a `plugin` column and an allowlist entry. */
 export function isValidPluginName(value: unknown): value is string {
@@ -123,13 +122,14 @@ export function validateRow(raw: Record<string, unknown>): SignalRow | undefined
   if (activeNumber !== 0 && activeNumber !== 1) {
     return undefined
   }
-  if (!isValidSummary(summary)) {
+  const cleanSummary = cleanSummaryText(summary)
+  if (cleanSummary === undefined) {
     return undefined
   }
   if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) {
     return undefined
   }
-  return { plugin, signal, active: activeNumber === 1, severity, summary, updatedAt }
+  return { plugin, signal, active: activeNumber === 1, severity, summary: cleanSummary, updatedAt }
 }
 
 /**
@@ -137,13 +137,22 @@ export function validateRow(raw: Record<string, unknown>): SignalRow | undefined
  * plugin's own name are dropped, because it can never be allowed.
  */
 export function validateCatalogEntry(raw: Record<string, unknown>): CatalogEntry | undefined {
-  const { plugin, signal, summary } = raw
-  return isAllowableSource(plugin) && isValidSignalName(signal) && isValidSummary(summary)
+  const { plugin, signal } = raw
+  const summary = cleanSummaryText(raw.summary)
+  return isAllowableSource(plugin) && isValidSignalName(signal) && summary !== undefined
     ? { plugin, signal, summary }
     : undefined
 }
 
-/** Control characters are rejected because the text is sent on to PagerDuty and may be logged. */
-function isValidSummary(value: unknown): value is string {
-  return typeof value === 'string' && value.length >= 1 && value.length <= MAX_SUMMARY_LENGTH && !CONTROL_CHARACTERS.test(value)
+/**
+ * The summary with each run of control characters replaced by a space, or
+ * undefined when it is not 1 to 1024 characters of text. The text is sent on to
+ * PagerDuty and may be logged, so control characters never get past this point.
+ * They are replaced rather than rejected, because a rejected row is a missed page.
+ */
+function cleanSummaryText(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length < 1 || value.length > MAX_SUMMARY_LENGTH) {
+    return undefined
+  }
+  return value.replace(CONTROL_CHARACTER_RUNS, ' ')
 }

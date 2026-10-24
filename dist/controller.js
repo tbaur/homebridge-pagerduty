@@ -24,6 +24,7 @@ const settings_1 = require("./settings");
 const config_1 = require("./signals/config");
 const schema_1 = require("./signals/schema");
 const reader_1 = require("./signals/reader");
+const retired_1 = require("./signals/retired");
 const desired_1 = require("./state/desired");
 const model_1 = require("./state/model");
 const mutations_1 = require("./state/mutations");
@@ -373,7 +374,7 @@ class AlertController {
      * plugin is allowed, and a missing or broken store is a fault only then.
      */
     startSignals() {
-        const path = (0, node_path_1.join)(this.options.storageDir, settings_1.DATA_DIR_NAME, settings_1.SIGNAL_STORE_FILE_NAME);
+        const path = (0, node_path_1.join)(this.options.storageDir, settings_1.DATA_DIR_NAME, settings_1.SIGNAL_INTERFACE_ID, settings_1.SIGNAL_STORE_FILE_NAME);
         const create = this.options.createReader
             ?? ((file, allowed) => new reader_1.SignalReader({ path: file, allowed, log: this.log }));
         this.reader = create(path, this.allowed);
@@ -386,8 +387,22 @@ class AlertController {
             }
         }
         this.pollSignals();
+        this.reportRetiredStores();
         this.timers.poll = setInterval(() => this.pollSignals(), settings_1.SIGNAL_POLL_MS);
         this.timers.poll.unref();
+    }
+    /**
+     * Names plugins that write only to a store this version no longer reads. A
+     * plugin already in the current store has been updated, and is left out.
+     */
+    reportRetiredStores() {
+        const current = new Set((this.catalog ?? []).map((entry) => entry.plugin));
+        for (const retired of (0, retired_1.findRetiredStoreWriters)({ storageDir: this.options.storageDir, stores: settings_1.RETIRED_SIGNAL_STORES, log: this.log })) {
+            for (const plugin of retired.plugins.filter((name) => !current.has(name))) {
+                this.log.warn(`signal store: ${(0, redact_1.forLog)(plugin)} still writes to ${retired.store}, which this version does not read, so it cannot page. `
+                    + 'Update it. Once nothing writes to it, delete it and its -wal and -shm files');
+            }
+        }
     }
     /**
      * Every plugin's signals at the last read, for the settings screen and the

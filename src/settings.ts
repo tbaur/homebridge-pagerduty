@@ -64,8 +64,24 @@ export const DATA_DIR_NAME = 'homebridge-pagerduty'
 /** Plugin state, in {@link DATA_DIR_NAME}. Private to this plugin. */
 export const STATE_FILE_NAME = 'state.json'
 
-/** The published signal store, in {@link DATA_DIR_NAME}. See docs/SIGNALS.md. */
+/**
+ * The signal store interface identifier, a directory in {@link DATA_DIR_NAME}.
+ * Other plugins write to this exact path, so it changes only for a change that
+ * would break a writer, never for a release on its own. See "Interface
+ * identifier" in docs/SIGNALS.md and the rules in DEVELOPMENT.md.
+ */
+export const SIGNAL_INTERFACE_ID = 'signals-2026-10-24'
+
+/** The published signal store, in {@link SIGNAL_INTERFACE_ID}. */
 export const SIGNAL_STORE_FILE_NAME = 'signals.sqlite'
+
+/**
+ * Signal stores that an earlier version read, relative to the Homebridge
+ * storage directory. They are never read for signals. At startup, plugins that
+ * still write to one are named in a warning, so an outdated writer does not
+ * fail without a trace. An identifier joins this list only in a major release.
+ */
+export const RETIRED_SIGNAL_STORES: readonly string[] = [`${DATA_DIR_NAME}/signals.sqlite`]
 
 /** Owner-only: alert names and times are nobody else's business. */
 export const PRIVATE_FILE_MODE = 0o600

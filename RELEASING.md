@@ -66,7 +66,7 @@ Dependabot titles runtime bumps `fix:` and development bumps `chore:` (see `.git
 - **Version source of truth** is `.release-please-manifest.json`. The `package.json` version belongs to release-please and is never hand-edited.
 - **release-please settings** are in `release-please-config.json`.
 - **A change to what is sent deserves a changelog note.** That changes who gets paged, and when. Say so in the PR description.
-- **A change to the signal schema is an interface change.** Other plugins run that text. Say so in the PR, raise `SIGNAL_SCHEMA_VERSION`, and update `docs/SIGNALS.md`, `docs/SIGNALS-AGENT.md` and `scripts/reference-writer.js` together.
+- **A change to the signal store is an interface change.** Other plugins run that code. Say so in the PR, and follow [Signal store interface](DEVELOPMENT.md#signal-store-interface): a breaking change needs a new identifier, and only a major release may stop reading an old one.
 - **Accessory-affecting releases** deserve a note too. Anything that changes an accessory's identity re-creates it in HomeKit and costs the user its room and automations. Prefer adopting, not re-keying, and say so in the PR when it cannot be avoided.
 
 ## Manual fallback

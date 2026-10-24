@@ -10,11 +10,9 @@
  * `CREATE TABLE IF NOT EXISTS` means the first process to run it decides the
  * table. Every writer therefore runs this text unchanged; docs/SIGNALS.md
  * publishes it verbatim and a test asserts the two match. Changing it is an
- * interface change: raise {@link SIGNAL_SCHEMA_VERSION} and say why.
+ * interface change: it needs a new `SIGNAL_INTERFACE_ID`. See DEVELOPMENT.md.
  */
 import type { CatalogEntry, SignalRef, SignalRow } from '../types';
-/** `PRAGMA user_version` for this schema. A writer that reads higher stops. */
-export declare const SIGNAL_SCHEMA_VERSION = 1;
 /** The schema, verbatim. See the file header before changing a character. */
 export declare const SIGNAL_SCHEMA_SQL = "PRAGMA journal_mode = WAL;\nCREATE TABLE IF NOT EXISTS signals (\n  plugin     TEXT    NOT NULL CHECK (length(plugin) BETWEEN 1 AND 128 AND plugin NOT GLOB '*[^a-z0-9@/._-]*'),\n  signal     TEXT    NOT NULL CHECK (length(signal) BETWEEN 1 AND 64 AND signal NOT GLOB '*[^a-z0-9._-]*'),\n  active     INTEGER NOT NULL CHECK (active IN (0, 1)),\n  severity   TEXT    NOT NULL CHECK (severity IN ('info', 'warning', 'error', 'critical')),\n  summary    TEXT    NOT NULL CHECK (length(summary) BETWEEN 1 AND 1024),\n  updated_at INTEGER NOT NULL,\n  PRIMARY KEY (plugin, signal)\n) STRICT;";
 /** True for a value usable as a `plugin` column and an allowlist entry. */

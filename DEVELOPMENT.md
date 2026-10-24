@@ -39,7 +39,28 @@ Break one of these and someone does not get paged, gets paged for nothing, or lo
 - **Bad config disables the platform. It does not unregister anything.** A usable config unregisters an alert switch when its alert `id` is removed, and a signal switch when its box is unchecked, its signal is muted, or its plugin is no longer allowed.
 - **HomeKit writes never wait on PagerDuty.** A write updates state, persists, wakes the sender and returns.
 - **The plugin never sends a lower severity for an open alert.**
-- **The signal schema text is an interface.** `SIGNAL_SCHEMA_SQL`, `docs/SIGNALS.md`, `docs/SIGNALS-AGENT.md` and `scripts/reference-writer.js` must match character for character, and tests check all of them. The module in `docs/SIGNALS-AGENT.md` is also compiled and run against the reader. Changing the schema means raising `SIGNAL_SCHEMA_VERSION`.
+- **The signal schema text is an interface.** `SIGNAL_SCHEMA_SQL`, `docs/SIGNALS.md`, `docs/SIGNALS-AGENT.md` and `scripts/reference-writer.js` must match character for character, and tests check all of them. See [Signal store interface](#signal-store-interface) before changing anything that a writer sees.
+
+## Signal store interface
+
+Other plugins write to `<storage>/homebridge-pagerduty/<identifier>/signals.sqlite`. The identifier is `SIGNAL_INTERFACE_ID` in `src/settings.ts`, currently `signals-2026-10-24`. Writers copy the module in `docs/SIGNALS-AGENT.md`, and nothing here can update those copies. These rules keep them working:
+
+- **The identifier is not the package version.** It changes only for a breaking change: a different path or table definition, a column that writers must fill, or a row that used to be read and no longer would be. A major release does not need a new identifier, and several majors can share one.
+- **Within one identifier, the reader only becomes more accepting.** Never start rejecting a row that a release with the same identifier read. Clean the value instead, as the reader does with control characters in a summary. A new column needs a default, and no writer may be required to fill it.
+- **The published module is frozen per identifier.** `tests/fixtures/signal-modules/<identifier>.ts.txt` is the copy that writers have. The module in `docs/SIGNALS-AGENT.md` must match the current one, and every frozen copy is compiled and run against the reader. Change a frozen copy only for a fix that writes the same rows, and say so in the PR.
+- **Name a new identifier `signals-<YYYY-MM-DD>`,** after the date that it was defined.
+
+To introduce a new identifier, which a minor release may do:
+
+1. Set `SIGNAL_INTERFACE_ID`, add its frozen module, and move `docs/SIGNALS.md`, `docs/SIGNALS-AGENT.md` and `scripts/reference-writer.js` to it.
+2. Keep reading the old identifier for the rest of the major version. The reader opens one store today, so this step adds reading several. When a plugin has rows in both stores, the rows in the new store win.
+3. Keep the old frozen module and its test for as long as its store is read.
+
+To retire an identifier, which only a major release may do:
+
+1. Stop reading it, and add its store to `RETIRED_SIGNAL_STORES`. At startup, the plugin then names each plugin that still writes only there.
+2. Remove its frozen module.
+3. Say so in the release notes, in the `feat!:` commit body.
 
 ## Commands
 

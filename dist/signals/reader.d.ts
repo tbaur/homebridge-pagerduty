@@ -49,12 +49,11 @@ export interface SignalReaderOptions {
     loadSqlite?: () => SqliteModule;
     platform?: typeof process.platform;
 }
-/** Polls `homebridge-pagerduty/signals.sqlite` for allowlisted rows. */
+/** Polls the signal store for allowlisted rows. */
 export declare class SignalReader {
     private readonly options;
     private connection;
     private sqlite;
-    private hasWarnedVersion;
     constructor(options: SignalReaderOptions);
     /**
      * Create the store if needed and open it, so writers usually find it ready.
@@ -70,7 +69,6 @@ export declare class SignalReader {
     private requireConnection;
     private reopen;
     private read;
-    private checkVersion;
     /** Owner-only on POSIX systems, for the main file and SQLite's two side files. */
     private tightenModes;
 }

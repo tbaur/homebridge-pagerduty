@@ -27,6 +27,8 @@ import {
   MAX_RESPONSE_BYTES,
   OUTAGE_REWARN_MS,
   REQUEST_TIMEOUT_MS,
+  RETIRED_SIGNAL_STORES,
+  SIGNAL_INTERFACE_ID,
   SIGNAL_POLL_MS,
   SIGNAL_STORE_FILE_NAME,
   STATE_FILE_NAME,
@@ -34,6 +36,7 @@ import {
 import { allowedPlugins, signalSwitches } from './signals/config'
 import { signalRefKey } from './signals/schema'
 import { SignalReader, type PollResult } from './signals/reader'
+import { findRetiredStoreWriters } from './signals/retired'
 import { computeDesired } from './state/desired'
 import type { PersistedState } from './state/model'
 import { alertTargetKey, isSignalSwitchOn, levelKey } from './state/model'
@@ -452,7 +455,7 @@ export class AlertController {
    * plugin is allowed, and a missing or broken store is a fault only then.
    */
   private startSignals(): void {
-    const path = join(this.options.storageDir, DATA_DIR_NAME, SIGNAL_STORE_FILE_NAME)
+    const path = join(this.options.storageDir, DATA_DIR_NAME, SIGNAL_INTERFACE_ID, SIGNAL_STORE_FILE_NAME)
     const create = this.options.createReader
       ?? ((file, allowed) => new SignalReader({ path: file, allowed, log: this.log }))
     this.reader = create(path, this.allowed)
@@ -464,8 +467,25 @@ export class AlertController {
       }
     }
     this.pollSignals()
+    this.reportRetiredStores()
     this.timers.poll = setInterval(() => this.pollSignals(), SIGNAL_POLL_MS)
     this.timers.poll.unref()
+  }
+
+  /**
+   * Names plugins that write only to a store this version no longer reads. A
+   * plugin already in the current store has been updated, and is left out.
+   */
+  private reportRetiredStores(): void {
+    const current = new Set((this.catalog ?? []).map((entry) => entry.plugin))
+    for (const retired of findRetiredStoreWriters({ storageDir: this.options.storageDir, stores: RETIRED_SIGNAL_STORES, log: this.log })) {
+      for (const plugin of retired.plugins.filter((name) => !current.has(name))) {
+        this.log.warn(
+          `signal store: ${forLog(plugin)} still writes to ${retired.store}, which this version does not read, so it cannot page. `
+          + 'Update it. Once nothing writes to it, delete it and its -wal and -shm files',
+        )
+      }
+    }
   }
 
   /**

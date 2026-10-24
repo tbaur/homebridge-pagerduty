@@ -115,7 +115,7 @@ For every alert, the plugin saves two things to disk: what should be true, based
 - **A removed alert** (its `id` is gone from the config) is resolved if it was open, and its switches are removed.
 - **A changed integration key:** PagerDuty ignores a resolve sent on a different key. The plugin names each alert that was open on the old key in one `warn` so you can resolve it by hand, then sends anything still active on the new key. The state file stores only a one-way fingerprint of the key.
 
-Files written: everything goes in one `homebridge-pagerduty` directory inside the Homebridge storage directory, readable only by its owner. It holds `state.json` and, once a plugin is allowed or another plugin has created it, `signals.sqlite` with its `-wal` and `-shm` files. The settings screen for Plugin Signals is written to `.homebridge-pagerduty-v1.schema.json` in the storage directory itself, where the Homebridge UI looks for it. The state file is replaced atomically on every change. Deleting the directory removes everything the plugin wrote; do that only with no alerts open, because the plugin then forgets what is open in PagerDuty.
+Files written: everything goes in one `homebridge-pagerduty` directory inside the Homebridge storage directory, readable only by its owner. It holds `state.json` and, once a plugin is allowed or another plugin has created it, `signals-2026-10-24/signals.sqlite` with its `-wal` and `-shm` files. `signals-2026-10-24` names the signal store interface, and is explained in [SIGNALS.md](SIGNALS.md#interface-identifier). The settings screen for Plugin Signals is written to `.homebridge-pagerduty-v1.schema.json` in the storage directory itself, where the Homebridge UI looks for it. The state file is replaced atomically on every change. Deleting the directory removes everything the plugin wrote; do that only with no alerts open, because the plugin then forgets what is open in PagerDuty.
 
 ## Full configuration reference
 
@@ -288,7 +288,8 @@ Only one `PagerDuty` platform is supported per Homebridge. A second block in the
 | `alert sump: signal is no longer used, so its switch no longer follows a signal. If the switch is on, turn it off, or its PagerDuty alert stays open` | warn | A **Follow Signal** setting from version 1. Use the signal's own settings under Plugin Signals instead |
 | `alert leak: level names are no longer used; each switch is named Leak plus its severity` | warn | A level `name` from version 1. Rename the switch with **Accessory Prefix** |
 | `at most 20 signal switches are created; skipped ...` | warn | More than 20 signals have Create HomeKit Switch checked. The named ones get no switch but still page |
-| `tightened /path/to/homebridge-pagerduty/signals.sqlite-wal to owner-only` | info | A store file had a looser mode |
+| `tightened /path/to/homebridge-pagerduty/signals-2026-10-24/signals.sqlite-wal to owner-only` | info | A store file had a looser mode |
+| `signal store: homebridge-example still writes to homebridge-pagerduty/signals.sqlite, which this version does not read, so it cannot page. Update it. Once nothing writes to it, delete it and its -wal and -shm files` | warn | A plugin writes signals only to the store that version 1 read. Update that plugin |
 
 Names and values that come from config or from other plugins are escaped and length-capped before they reach the log.
 

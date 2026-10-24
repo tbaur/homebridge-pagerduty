@@ -37,7 +37,7 @@ import {
 } from '../settings'
 import type { CatalogEntry, PluginLogger, SignalRow } from '../types'
 import { describeError, errorCode } from '../utils/errors'
-import { SIGNAL_SCHEMA_SQL, SIGNAL_SCHEMA_VERSION, validateCatalogEntry, validateRow } from './schema'
+import { SIGNAL_SCHEMA_SQL, validateCatalogEntry, validateRow } from './schema'
 
 /** The part of `node:sqlite` this file uses. */
 export interface SqliteModule {
@@ -75,12 +75,11 @@ function loadNodeSqlite(): SqliteModule {
   return process.getBuiltinModule('node:sqlite') as SqliteModule
 }
 
-/** Polls `homebridge-pagerduty/signals.sqlite` for allowlisted rows. */
+/** Polls the signal store for allowlisted rows. */
 export class SignalReader {
   private readonly options: SignalReaderOptions
   private connection: Connection | undefined
   private sqlite: SqliteModule | undefined
-  private hasWarnedVersion = false
 
   constructor(options: SignalReaderOptions) {
     this.options = options
@@ -147,7 +146,6 @@ export class SignalReader {
       // Node 22.16, and the floor is 22.13.
       db.exec(`PRAGMA busy_timeout = ${READER_BUSY_TIMEOUT_MS}`)
       db.exec(SIGNAL_SCHEMA_SQL)
-      this.checkVersion(db)
       this.tightenModes()
       const placeholders = this.options.allowed.map(() => '?').join(', ')
       const stats = statSync(this.options.path)
@@ -194,19 +192,6 @@ export class SignalReader {
       .slice(0, MAX_CATALOG_ROWS)
     connection.lastDataVersion = version
     return { kind: 'rows', rows, complete: raw.length <= MAX_SIGNAL_ROWS, catalog, invalidRows }
-  }
-
-  private checkVersion(db: DatabaseSync): void {
-    const row = db.prepare('PRAGMA user_version').get() as { user_version?: unknown } | undefined
-    const version = Number(row?.user_version ?? 0)
-    if (version === 0) {
-      db.exec(`PRAGMA user_version = ${SIGNAL_SCHEMA_VERSION}`)
-    } else if (version > SIGNAL_SCHEMA_VERSION && !this.hasWarnedVersion) {
-      this.hasWarnedVersion = true
-      this.options.log.warn(
-        `signal store is interface version ${version}; this plugin reads version ${SIGNAL_SCHEMA_VERSION}. Update homebridge-pagerduty`,
-      )
-    }
   }
 
   /** Owner-only on POSIX systems, for the main file and SQLite's two side files. */
