@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/tbaur/homebridge-pagerduty/compare/v0.1.1...v1.0.0) (2026-10-24)
+
+
+### Miscellaneous Chores
+
+* set the next release to 1.0.0 ([db8cd3f](https://github.com/tbaur/homebridge-pagerduty/commit/db8cd3ff0c6caffe6a02fba51e14fdad731f4d79))
+
 ## [0.1.1](https://github.com/tbaur/homebridge-pagerduty/compare/v0.1.0...v0.1.1) (2026-10-24)
 
 
