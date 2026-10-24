@@ -155,7 +155,7 @@ Each level takes:
 | --- | --- | --- |
 | `severity` | ✓ | `info`, `warning`, `error` or `critical`. If the service uses alert severity to set urgency, `critical` and `error` are high urgency, and `warning` and `info` are low |
 
-Each level's switch is named `<prefix> <Severity>`, such as `Freezer Warning` and `Freezer Critical`. A `name` left on a level by version 1 is ignored, with a warning.
+Each level's switch is named `<prefix> <Severity>`, such as `Freezer Warning` and `Freezer Critical`.
 
 **Severity is part of a switch's identity.** Changing it creates a new switch and removes the old one, along with its automations.
 
@@ -284,12 +284,8 @@ Only one `PagerDuty` platform is supported per Homebridge. A second block in the
 | `signal store unavailable (...); keeping the last rows read` | warn | A read error. Nothing is cleared |
 | `signal store: homebridge-example writes signals; allow it under Plugin Signals to page for it` | info | A plugin writes signals but is not allowed. Allow it to let it page |
 | `could not update the settings screen (...); Plugin Signals may be out of date` | warn | The settings screen file could not be written. Paging is not affected |
-| `signals.sources is no longer used; allow each plugin under Plugin Signals instead` | warn | A setting from version 1. Check **Allow this plugin to page** for each plugin instead |
-| `alert sump: signal is no longer used, so its switch no longer follows a signal. If the switch is on, turn it off, or its PagerDuty alert stays open` | warn | A **Follow Signal** setting from version 1. Use the signal's own settings under Plugin Signals instead |
-| `alert leak: level names are no longer used; each switch is named Leak plus its severity` | warn | A level `name` from version 1. Rename the switch with **Accessory Prefix** |
 | `at most 20 signal switches are created; skipped ...` | warn | More than 20 signals have Create HomeKit Switch checked. The named ones get no switch but still page |
 | `tightened /path/to/homebridge-pagerduty/signals-2026-10-24/signals.sqlite-wal to owner-only` | info | A store file had a looser mode |
-| `signal store: homebridge-example still writes to homebridge-pagerduty/signals.sqlite, which this version does not read, so it cannot page. Update it. Once nothing writes to it, delete it and its -wal and -shm files` | warn | A plugin writes signals only to the store that version 1 read. Update that plugin |
 
 Names and values that come from config or from other plugins are escaped and length-capped before they reach the log.
 

@@ -58,7 +58,7 @@ To introduce a new identifier, which a minor release may do:
 
 To retire an identifier, which only a major release may do:
 
-1. Stop reading it, and add its store to `RETIRED_SIGNAL_STORES`. At startup, the plugin then names each plugin that still writes only there.
+1. Stop reading it, and delete the code that read it.
 2. Remove its frozen module.
 3. Say so in the release notes, in the `feat!:` commit body.
 

@@ -113,11 +113,6 @@ export declare class AlertController {
      */
     private startSignals;
     /**
-     * Names plugins that write only to a store this version no longer reads. A
-     * plugin already in the current store has been updated, and is left out.
-     */
-    private reportRetiredStores;
-    /**
      * Every plugin's signals at the last read, for the settings screen and the
      * startup report. Undefined when the store has not been read. A store that
      * does not exist yet reads as empty. The text is the other plugin's and is

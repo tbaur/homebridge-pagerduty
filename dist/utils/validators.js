@@ -147,10 +147,7 @@ function validateSignalPlugins(value, warnings) {
     const plugins = [];
     for (const [key, entry] of Object.entries(value)) {
         const plugin = (0, schema_1.pluginFromConfigKey)(key);
-        if (key === 'sources' && Array.isArray(entry)) {
-            warnings.push('signals.sources is no longer used; allow each plugin under Plugin Signals instead');
-        }
-        else if (plugin === undefined || !isPlainObject(entry)) {
+        if (plugin === undefined || !isPlainObject(entry)) {
             warnings.push(`signals: ${(0, redact_1.forLog)(key)} is not a package name with settings; skipped`);
         }
         else if (plugins.some((existing) => existing.plugin === plugin)) {
@@ -281,15 +278,9 @@ function validateAlert(entry, index, warnings) {
     const summary = validateText({ value: alert.summary, field: 'summary', max: settings_1.MAX_SUMMARY_LENGTH, problems });
     const levels = validateLevels(alert.levels, name ?? id, problems);
     const resolveAfterMinutes = validateMinutes(alert.resolveAfterMinutes, problems);
-    if ('signal' in alert) {
-        warnings.push(`alert ${id}: signal is no longer used, so its switch no longer follows a signal. If the switch is on, turn it off, or its PagerDuty alert stays open`);
-    }
     if (name === undefined || summary === undefined || levels === undefined || problems.length > 0) {
         warnings.push(`alert ${id} is held until fixed (nothing is sent or removed): ${problems.join('; ')}`);
         return { kind: 'held', id };
-    }
-    if (hasLevelNames(alert.levels)) {
-        warnings.push(`alert ${id}: level names are no longer used; each switch is named ${(0, redact_1.forLog)(name)} plus its severity`);
     }
     return {
         kind: 'ok',
@@ -354,9 +345,6 @@ function validateLevels(value, prefix, problems) {
         severities.push(level.severity);
     }
     return severities.map((severity) => ({ severity, name: levelSwitchName(prefix, severity) }));
-}
-function hasLevelNames(levels) {
-    return Array.isArray(levels) && levels.some((level) => typeof level === 'object' && level !== null && 'name' in level);
 }
 /** `Leak Critical`, within HomeKit's budget. */
 function levelSwitchName(prefix, severity) {

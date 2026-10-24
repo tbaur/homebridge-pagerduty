@@ -75,14 +75,6 @@ export const SIGNAL_INTERFACE_ID = 'signals-2026-10-24'
 /** The published signal store, in {@link SIGNAL_INTERFACE_ID}. */
 export const SIGNAL_STORE_FILE_NAME = 'signals.sqlite'
 
-/**
- * Signal stores that an earlier version read, relative to the Homebridge
- * storage directory. They are never read for signals. At startup, plugins that
- * still write to one are named in a warning, so an outdated writer does not
- * fail without a trace. An identifier joins this list only in a major release.
- */
-export const RETIRED_SIGNAL_STORES: readonly string[] = [`${DATA_DIR_NAME}/signals.sqlite`]
-
 /** Owner-only: alert names and times are nobody else's business. */
 export const PRIVATE_FILE_MODE = 0o600
 

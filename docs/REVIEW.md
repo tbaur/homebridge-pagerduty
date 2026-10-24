@@ -54,7 +54,6 @@ This document summarizes how the plugin handles security, reliability, maintaina
 | **Config schema and validator** | ✅ | `config.schema.json` mirrors the validator's ranges, and a test compares each pair |
 | **Diagnostics** | ✅ | Opt-in heartbeat: open, pending and held counts, store health, and API latency. `healthy` or `degraded` with reasons. Start and stop snapshots carry a redacted config echo. Optional JSON lines |
 | **Dry run** | ✅ | Logs each event that would be sent, and sends nothing |
-| **Outdated writers** | ✅ | At startup, each plugin that writes only to a retired signal store is named in a `warn`, so it cannot stop paging without a trace |
 | **Smoke script** | ✅ | `scripts/smoke.js` sends one trigger and its resolve through the plugin's own compiled code |
 
 ## Scope

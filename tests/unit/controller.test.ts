@@ -15,8 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { AlertController, type ControllerOptions, type SignalReaderLike } from '../../src/controller'
-import type { PollResult, SqliteModule } from '../../src/signals/reader'
-import { SIGNAL_SCHEMA_SQL } from '../../src/signals/schema'
+import type { PollResult } from '../../src/signals/reader'
 import type { PersistedState } from '../../src/state/model'
 import { StateStore } from '../../src/state/store'
 import type { CatalogEntry, ResolvedConfig, SignalRow } from '../../src/types'
@@ -546,39 +545,6 @@ describe('the signal store', () => {
     ])
     expect(h.log.lines('debug')).toContain('signal store: 2 row(s) failed validation and were ignored')
     expect(h.log.lines('warn')).toContain('signal store holds more rows than are read; rows that have gone are not cleared until it shrinks')
-  })
-
-  function writeRetiredStore(plugins: string[]): void {
-    mkdirSync(join(dir, 'homebridge-pagerduty'), { recursive: true })
-    const sqlite = process.getBuiltinModule('node:sqlite') as SqliteModule
-    const db = new sqlite.DatabaseSync(join(dir, 'homebridge-pagerduty', 'signals.sqlite'))
-    db.exec(SIGNAL_SCHEMA_SQL)
-    for (const plugin of plugins) {
-      db.prepare('INSERT INTO signals VALUES (?, ?, 1, ?, ?, 1)').run(plugin, 'door', 'warning', 'Door open')
-    }
-    db.close()
-  }
-
-  it('names each plugin that writes only to the 1.x store, which is not read', async () => {
-    writeRetiredStore(['homebridge-example', 'homebridge-other', 'homebridge-third'])
-    const h = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), { createReader: scriptedReader([rows([row()])]) })
-    await flush()
-
-    const advice = 'still writes to homebridge-pagerduty/signals.sqlite, which this version does not read, so it cannot page. '
-      + 'Update it. Once nothing writes to it, delete it and its -wal and -shm files'
-    expect(h.log.lines('warn')).toEqual([
-      `signal store: homebridge-other ${advice}`,
-      `signal store: homebridge-third ${advice}`,
-    ])
-    expect(h.api.actions).toEqual(['trigger homebridge/homebridge-example/door warning'])
-  })
-
-  it('says nothing about the 1.x store once every plugin in it writes to the current one', async () => {
-    writeRetiredStore(['homebridge-example'])
-    const h = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), { createReader: scriptedReader([rows([row()])]) })
-    await flush()
-
-    expect(h.log.lines('warn')).toEqual([])
   })
 
   it('keeps the last rows while the store is unreadable, opens the sensor after five minutes, and recovers', async () => {

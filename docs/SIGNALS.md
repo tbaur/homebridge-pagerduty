@@ -89,8 +89,6 @@ Your plugin does not need to know whether `homebridge-pagerduty` is installed. W
 
 `<storage>` is `api.user.storagePath()`, the directory that holds `config.json`. Every child bridge on an install uses the same storage directory, so your plugin can reach the file from any bridge. `signals-2026-10-24` is the interface identifier. See [Interface identifier](#interface-identifier).
 
-homebridge-pagerduty 1.x read `<storage>/homebridge-pagerduty/signals.sqlite`. Version 2 does not read that file. At startup it logs a `warn` that names each plugin that still writes there and nowhere else.
-
 Keep the store on a local disk. SQLite's WAL mode does not work on network filesystems.
 
 ### Table definition

@@ -247,13 +247,6 @@ describe('validateConfig: plugin signals', () => {
     ])
   })
 
-  it('says signals.sources from 1.x is no longer used, instead of calling it a bad package name', () => {
-    const result = validateConfig(base({ signals: { sources: ['homebridge-example'] } }))
-
-    expect(result.config?.signalPlugins).toEqual([])
-    expect(result.warnings).toEqual(['signals.sources is no longer used; allow each plugin under Plugin Signals instead'])
-  })
-
   it('warns about a signals value that is not an object, and a signals list that is not one either', () => {
     expect(validateConfig(base({ signals: ['homebridge-example'] })).warnings).toEqual(['signals is not an object; no plugin may page'])
     expect(validateConfig(base({ signals: { 'homebridge-example': { allow: true, signals: [] } } })).warnings)
@@ -297,15 +290,6 @@ describe('validateConfig: alerts', () => {
       { severity: 'warning', name: 'Freezer Warning' },
       { severity: 'critical', name: 'Freezer Critical' },
     ])
-  })
-
-  it('ignores a level name from 1.x, with a warning', () => {
-    const result = validateConfig(base({
-      alerts: [{ id: 'leak', name: 'Zone One Leak', summary: 's', levels: [{ severity: 'critical', name: 'Old\nName' }] }],
-    }))
-
-    expect(result.config?.alerts[0]!.levels).toEqual([{ severity: 'critical', name: 'Zone One Leak Critical' }])
-    expect(result.warnings).toEqual(['alert leak: level names are no longer used; each switch is named Zone One Leak plus its severity'])
   })
 
   it('makes alerts a fatal error when it is not a list or is too long', () => {
@@ -357,15 +341,6 @@ describe('validateConfig: alerts', () => {
     expect(result.config?.heldAlertIds).toEqual(['leak'])
     expect(result.warnings.join('\n')).toContain(problem)
     expect(result.warnings.join('\n')).toContain('alert leak is held until fixed')
-  })
-
-  it('ignores the signal field that 1.x used to bind an alert, and says the switch may need turning off', () => {
-    const result = validateConfig(base({ alerts: [{ id: 'a', name: 'A', summary: 's', levels: [{ severity: 'info' }], signal: 'homebridge-example/x' }] }))
-
-    expect(result.config?.alerts[0]).not.toHaveProperty('signal')
-    expect(result.warnings).toEqual([
-      'alert a: signal is no longer used, so its switch no longer follows a signal. If the switch is on, turn it off, or its PagerDuty alert stays open',
-    ])
   })
 })
 
