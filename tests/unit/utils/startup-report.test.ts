@@ -65,7 +65,7 @@ describe('formatStartupReport', () => {
     ])
   })
 
-  it('marks new optional accessories and a dry run', () => {
+  it('marks new accessories and a dry run', () => {
     const base = resolvedConfig()
     const config = resolvedConfig({ options: { ...base.options, dryRun: true } })
 
@@ -73,10 +73,17 @@ describe('formatStartupReport', () => {
 
     expect(lines).toEqual([
       'Starting v1.2.3 (dry run: nothing is sent): region US, source homebridge',
-      'Alert switch: leak "Water detected in Zone One" (critical)',
+      'Alert switch: leak "Water detected in Zone One" (critical; new)',
       'Maintenance switch: PagerDuty Maintenance (new); turns off after 240 min',
       'Delivery sensor: PagerDuty Delivery (new)',
     ])
+  })
+
+  it('names the new switches when only some of an alert\'s levels are new', () => {
+    const config = resolvedConfig({ alerts: [leveledAlert('freezer', ['warning', 'critical'])] })
+
+    expect(report(config, { created: ['Freezer critical'] })[1])
+      .toBe('Alert switch: freezer "Freezer temperature is high" (warning, critical; new Freezer critical)')
   })
 
   it('reports renamed accessories with their old names', () => {

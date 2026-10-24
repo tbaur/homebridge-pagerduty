@@ -20,7 +20,11 @@ function formatStartupReport(input) {
     const lines = [platformLine(input)];
     for (const alert of config.alerts) {
         const switches = accessories.filter((accessory) => accessory.kind === 'alert' && accessory.alertId === alert.id);
-        const notes = [alert.levels.map((level) => level.severity).join(', '), ...renameNotes(switches, changes)];
+        const notes = [
+            alert.levels.map((level) => level.severity).join(', '),
+            ...newNotes(switches, changes),
+            ...renameNotes(switches, changes),
+        ];
         lines.push(`Alert switch: ${alert.id} "${(0, redact_1.forLog)(alert.summary)}" (${notes.join('; ')})`);
     }
     for (const id of config.heldAlertIds) {
@@ -43,6 +47,17 @@ function platformLine({ config, pluginVersion }) {
     }
     const mode = config.options.dryRun ? ' (dry run: nothing is sent)' : '';
     return `Starting v${pluginVersion}${mode}: ${parts.join(', ')}`;
+}
+/** `new` when every switch was created on this start, otherwise the names of the ones that were. */
+function newNotes(switches, changes) {
+    const created = switches.filter((accessory) => changes.created.has(accessory));
+    if (created.length === 0) {
+        return [];
+    }
+    if (created.length === switches.length) {
+        return ['new'];
+    }
+    return [`new ${created.map((accessory) => (0, redact_1.forLog)(accessory.name)).join(', ')}`];
 }
 function renameNotes(switches, changes) {
     const renames = switches.flatMap((accessory) => {
