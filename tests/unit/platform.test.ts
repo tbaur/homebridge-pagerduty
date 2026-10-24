@@ -205,7 +205,7 @@ describe('when configured', () => {
     const startup = log.calls.slice(log.calls.findIndex((line) => line.startsWith('info Starting v')))
     expect(startup).toEqual([
       expect.stringMatching(/^info Starting v\S+: region US, source homebridge$/),
-      'info Alert switch: leak "Water detected" (critical)',
+      'info Alert switch: leak "Water detected" (critical; new)',
       'info Maintenance switch: PagerDuty Maintenance (new); turns off after 240 min',
       'info Delivery sensor: PagerDuty Delivery (new)',
       'info Platform ready',

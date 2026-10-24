@@ -235,7 +235,7 @@ Only one `PagerDuty` platform is supported per Homebridge. A second block in the
 | Line | Level | Meaning |
 | --- | --- | --- |
 | `Starting v1.1.0: region US, source homebridge, signal sources 2` | info | Startup has begun. `(dry run: nothing is sent)` follows the version in dry-run mode. The signal sources count appears when there are any |
-| `Alert switch: freezer "Freezer temperature is high" (warning, critical)` | info | One line for each alert at startup: its `id`, its PagerDuty title and the severity of each level. `; renamed Freezer Warm to Freezer Cold` joins the brackets when a switch name changed in the config |
+| `Alert switch: freezer "Freezer temperature is high" (warning, critical)` | info | One line for each alert at startup: its `id`, its PagerDuty title and the severity of each level. `; new` joins the brackets when its switches were added on this start (or `; new Freezer Hot` when only some were), and `; renamed Freezer Warm to Freezer Cold` when a switch name changed in the config |
 | `Maintenance switch: PagerDuty Maintenance; turns off after 240 min` | info | The maintenance switch, at startup. The delivery sensor gets a `Delivery sensor:` line. `(new)` follows the name when the accessory was added on this start, and `(renamed from ...)` when its name changed |
 | `Platform ready` | info | Startup finished and everything is running. It follows the `Diagnostics start` line when diagnostics are on. If this line is missing, look for an `error` above it |
 | `Freezer Warm: switched on` | info | A level changed |
