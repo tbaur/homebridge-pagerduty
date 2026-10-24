@@ -182,6 +182,10 @@ Running this plugin in two separate child bridges on one install is not supporte
 - [Report Issues](https://github.com/tbaur/homebridge-pagerduty/issues)
 - [Changelog](CHANGELOG.md)
 
+## Trademarks
+
+homebridge-pagerduty is an independent project. It is not affiliated with or endorsed by PagerDuty. PagerDuty is a trademark of PagerDuty, Inc.
+
 ## License
 
 Copyright 2026 tbaur
