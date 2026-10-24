@@ -47,7 +47,7 @@ import {
 } from './state/mutations'
 import { reconcile, type Action, type Plan } from './state/reconcile'
 import { fingerprintRoutingKey, StateStore } from './state/store'
-import type { DeliveryGauges, PluginLogger, ResolvedAlert, ResolvedConfig, Severity } from './types'
+import type { DeliveryGauges, PluginLogger, ResolvedAlert, ResolvedConfig, Severity, SignalRow } from './types'
 import { describeError } from './utils/errors'
 import { forLog } from './utils/redact'
 import type { InterruptibleSleep } from './utils/timing'
@@ -97,6 +97,7 @@ export class AlertController {
   private fault = false
   private reader: SignalReaderLike | undefined
   private storeUnreadableSince: number | null = null
+  private writtenSignals: Map<string, string[]> | undefined
   private lastStoreWarnAt = 0
   private pendingRowSweep = false
   private started = false
@@ -437,17 +438,30 @@ export class AlertController {
     this.timers.poll.unref()
   }
 
+  /**
+   * The signal names each listed plugin had written at the last read, or
+   * undefined when the store has not been read. A store that does not exist
+   * yet reads as empty.
+   */
+  signalsWritten(): ReadonlyMap<string, readonly string[]> | undefined {
+    return this.writtenSignals
+  }
+
   private pollSignals(): void {
     const result = this.reader?.poll()
     if (result === undefined || this.stopped) {
       return
     }
     if (result.kind === 'unavailable') {
+      if (result.reason === 'missing') {
+        this.writtenSignals = new Map()
+      }
       this.noteStoreUnavailable(result.reason)
       return
     }
     this.noteStoreAvailable()
     if (result.kind === 'rows') {
+      this.writtenSignals = groupSignalNames(result.rows)
       this.applySignalRows(result)
     }
   }
@@ -589,6 +603,21 @@ export class AlertController {
     }
     return this.state
   }
+}
+
+function groupSignalNames(rows: readonly SignalRow[]): Map<string, string[]> {
+  const grouped = new Map<string, string[]>()
+  for (const row of rows) {
+    const names = grouped.get(row.plugin) ?? []
+    if (!names.includes(row.signal)) {
+      names.push(row.signal)
+    }
+    grouped.set(row.plugin, names)
+  }
+  for (const names of grouped.values()) {
+    names.sort()
+  }
+  return grouped
 }
 
 function levelName(alert: ResolvedAlert, severity: Severity): string {

@@ -24,6 +24,8 @@ export interface StartupReportInput {
     accessories: readonly ResolvedAccessory[];
     pluginVersion: string;
     changes: AccessoryChanges;
+    /** Signal names by plugin from the first store read. Undefined leaves the signal lines out. */
+    signalsWritten?: ReadonlyMap<string, readonly string[]>;
 }
 /** Build the startup report, one log line per entry. */
 export declare function formatStartupReport(input: StartupReportInput): string[];

@@ -525,6 +525,29 @@ describe('the signal store', () => {
     expect(h.log.lines('info')).not.toContain('signal store readable again')
   })
 
+  it('reports the signal names each listed plugin has written, sorted and without repeats', () => {
+    const h = start(resolvedConfig({ alerts: [], signalSources: [...SOURCES, 'homebridge-quiet'] }), {
+      createReader: scriptedReader([rows([
+        row({ signal: 'window' }),
+        row({ signal: 'door', active: false }),
+        row({ signal: 'door' }),
+      ])]),
+    })
+
+    expect(h.controller.signalsWritten()).toEqual(new Map([['homebridge-example', ['door', 'window']]]))
+  })
+
+  it('reads a missing store as empty, an unreadable one as unknown, and no sources as unknown', () => {
+    const config = resolvedConfig({ alerts: [], signalSources: SOURCES })
+    const missing = start(config, { createReader: scriptedReader([{ kind: 'unavailable', reason: 'missing' }]) })
+    expect(missing.controller.signalsWritten()).toEqual(new Map())
+
+    const broken = start(config, { createReader: scriptedReader([{ kind: 'unavailable', reason: 'file is not a database' }]) })
+    expect(broken.controller.signalsWritten()).toBeUndefined()
+
+    expect(start(resolvedConfig({ alerts: [] })).controller.signalsWritten()).toBeUndefined()
+  })
+
   it('treats a store that cannot be created as unavailable', async () => {
     const h = start(resolvedConfig({ alerts: [], signalSources: SOURCES }), {
       createReader: () => ({

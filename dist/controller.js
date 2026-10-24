@@ -51,6 +51,7 @@ class AlertController {
     fault = false;
     reader;
     storeUnreadableSince = null;
+    writtenSignals;
     lastStoreWarnAt = 0;
     pendingRowSweep = false;
     started = false;
@@ -361,17 +362,29 @@ class AlertController {
         this.timers.poll = setInterval(() => this.pollSignals(), settings_1.SIGNAL_POLL_MS);
         this.timers.poll.unref();
     }
+    /**
+     * The signal names each listed plugin had written at the last read, or
+     * undefined when the store has not been read. A store that does not exist
+     * yet reads as empty.
+     */
+    signalsWritten() {
+        return this.writtenSignals;
+    }
     pollSignals() {
         const result = this.reader?.poll();
         if (result === undefined || this.stopped) {
             return;
         }
         if (result.kind === 'unavailable') {
+            if (result.reason === 'missing') {
+                this.writtenSignals = new Map();
+            }
             this.noteStoreUnavailable(result.reason);
             return;
         }
         this.noteStoreAvailable();
         if (result.kind === 'rows') {
+            this.writtenSignals = groupSignalNames(result.rows);
             this.applySignalRows(result);
         }
     }
@@ -503,6 +516,20 @@ class AlertController {
     }
 }
 exports.AlertController = AlertController;
+function groupSignalNames(rows) {
+    const grouped = new Map();
+    for (const row of rows) {
+        const names = grouped.get(row.plugin) ?? [];
+        if (!names.includes(row.signal)) {
+            names.push(row.signal);
+        }
+        grouped.set(row.plugin, names);
+    }
+    for (const names of grouped.values()) {
+        names.sort();
+    }
+    return grouped;
+}
 function levelName(alert, severity) {
     return alert.levels.find((level) => level.severity === severity)?.name ?? alert.name;
 }

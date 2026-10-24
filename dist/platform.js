@@ -121,7 +121,13 @@ class PagerDutyPlatform {
             this.log.warn(warning);
         }
         const changes = this.syncAccessories(accessories, config.heldAlertIds);
-        const report = (0, utils_1.formatStartupReport)({ config, accessories, pluginVersion: this.pluginVersion, changes });
+        const report = (0, utils_1.formatStartupReport)({
+            config,
+            accessories,
+            pluginVersion: this.pluginVersion,
+            changes,
+            signalsWritten: controller.signalsWritten(),
+        });
         for (const line of report) {
             this.log.info(line);
         }

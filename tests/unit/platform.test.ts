@@ -213,6 +213,15 @@ describe('when configured', () => {
     await fake.shutdown()
   })
 
+  it('lists each signal source in the startup report, before the store has been written', async () => {
+    const { fake, log } = create(config({ signals: { sources: ['homebridge-example'] } }))
+
+    fake.launch()
+
+    expect(log.calls).toContain('info Signals from homebridge-example: none written yet')
+    await fake.shutdown()
+  })
+
   it('reports restored accessories without the new tag, and says ready last', async () => {
     const restored = cached('PagerDuty Maintenance', 'maintenance', { kind: 'maintenance' })
     const { fake, log } = create(config({ options: { diagnosticsInterval: 30 } }), [restored])
