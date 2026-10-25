@@ -37,6 +37,7 @@ function populated(): PersistedState {
   state.levels['leak:critical'] = { on: true, changedAt: 1 }
   state.alerts.leak = { resolveAt: null }
   state.rowsSeen['homebridge-example/door'] = { active: true, severity: 'warning', summary: 'Door open', changedAt: 2 }
+  state.switches['homebridge-example/door'] = { on: false, changedAt: 3 }
   state.delivered['alert:leak'] = { dedupKey: 'homebridge/leak', severity: 'critical', openedAt: 3 }
   state.rejected['alert:other'] = { desiredHash: 'h', at: 4, reason: 'HTTP 400' }
   return state
@@ -172,6 +173,7 @@ describe('parseState', () => {
     ['a bad level', (state) => { state.levels = { x: { on: true } } }],
     ['a bad timer', (state) => { state.alerts = { x: { resolveAt: 'soon' } } }],
     ['a bad row', (state) => { state.rowsSeen = { x: { active: true, severity: 'urgent', summary: 's', changedAt: 1 } } }],
+    ['a bad signal switch', (state) => { state.switches = { x: { on: 'yes', changedAt: 1 } } }],
     ['a bad delivered record', (state) => { state.delivered = { x: { dedupKey: 1, severity: 'info', openedAt: 1 } } }],
     ['a bad rejected record', (state) => { state.rejected = { x: { desiredHash: 'h', at: 1 } } }],
     ['an array where a record belongs', (state) => { state.levels = [] }],
@@ -180,6 +182,13 @@ describe('parseState', () => {
     damage(state)
 
     expect(parseState(JSON.stringify(state))).toBeUndefined()
+  })
+
+  it('reads a file written before signal switches existed', () => {
+    const state = JSON.parse(valid) as Record<string, unknown>
+    delete state.switches
+
+    expect(parseState(JSON.stringify(state))).toEqual({ ...populated(), switches: {} })
   })
 
   it('rejects something that is not JSON or not an object', () => {

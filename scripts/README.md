@@ -39,7 +39,7 @@ node scripts/reference-writer.js --storage /path/to/homebridge --plugin homebrid
 node scripts/reference-writer.js --storage /path/to/homebridge --plugin homebridge-example --signal door --clear
 ```
 
-`--storage` is the Homebridge storage directory, the one that holds `config.json`. The plugin pages only if `homebridge-example` (or whatever `--plugin` you use) is in `signals.sources`.
+`--storage` is the Homebridge storage directory, the one that holds `config.json`. The plugin pages only once `homebridge-example` (or whatever `--plugin` you use) is allowed under **Plugin Signals**. It appears there after the first write and a Homebridge restart.
 
 The file has no dependencies and does not load `dist/`, because a plugin that writes signals must not depend on this package. A plugin author can copy it, or use the TypeScript module in [docs/SIGNALS-AGENT.md](../docs/SIGNALS-AGENT.md). A test checks that its schema text matches the plugin's character for character, and that the plugin reads what it writes.
 

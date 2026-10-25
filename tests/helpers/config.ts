@@ -7,7 +7,7 @@
  * @fileoverview Configuration builders. Every name here is a placeholder.
  */
 
-import type { ResolvedAlert, ResolvedConfig, Severity } from '../../src/types'
+import type { ResolvedAlert, ResolvedConfig, ResolvedSignal, ResolvedSignalPlugin, Severity } from '../../src/types'
 import { FAKE_ROUTING_KEY } from './secrets'
 
 /** One alert with a single level, overridable. */
@@ -43,7 +43,7 @@ export function resolvedConfig(overrides: Partial<ResolvedConfig> = {}): Resolve
     alerts: [alert()],
     heldAlertIds: [],
     maintenance: { switch: true, name: 'PagerDuty Maintenance', maxMinutes: 240 },
-    signalSources: [],
+    signalPlugins: [],
     options: {
       deliveryFaultSensor: true,
       deliveryFaultSensorName: 'PagerDuty Delivery',
@@ -53,4 +53,22 @@ export function resolvedConfig(overrides: Partial<ResolvedConfig> = {}): Resolve
     },
     ...overrides,
   }
+}
+
+/** One signal's settings, as the validator resolves an untouched entry. Overridable. */
+export function signal(overrides: Partial<ResolvedSignal> & { signal?: string } = {}): ResolvedSignal {
+  return {
+    plugin: 'homebridge-example',
+    signal: 'sump-high',
+    enabled: true,
+    bypassMaintenance: false,
+    switch: false,
+    switchName: 'Sump High',
+    ...overrides,
+  }
+}
+
+/** An allowed plugin with the given signal settings. */
+export function allowedPlugin(plugin: string, signals: ResolvedSignal[] = []): ResolvedSignalPlugin {
+  return { plugin, allow: true, signals: signals.map((entry) => ({ ...entry, plugin })) }
 }

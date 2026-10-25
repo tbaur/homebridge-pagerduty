@@ -18,7 +18,8 @@ exports.expireResolveTimers = expireResolveTimers;
 exports.applyMaintenance = applyMaintenance;
 exports.nextDeadline = nextDeadline;
 exports.applyRows = applyRows;
-exports.pruneRows = pruneRows;
+exports.applySignalSwitchWrite = applySignalSwitchWrite;
+exports.pruneSignals = pruneSignals;
 exports.applyKeyChange = applyKeyChange;
 const schema_1 = require("../signals/schema");
 const model_1 = require("./model");
@@ -106,14 +107,18 @@ function nextDeadline(state, alerts) {
  * Fold a successful read of the signal store into state.
  *
  * A row changes only when `active` or `severity` changes; an `updated_at`
- * change alone is not a change. A changed bound row drives its alert's switch,
- * and the last change wins. A row that has gone counts as cleared, but only
- * after a read that is known to be complete.
+ * change alone is not a change. A changed row sets its signal's switch unless
+ * a person set the switch after the row changed: the later change wins, by
+ * when it happened, not by when it was read. A row that has gone counts as cleared,
+ * but only after a read that is known to be complete.
  */
 function applyRows(state, update) {
     const result = { changed: [], dirty: false };
     const present = new Set();
     for (const row of update.rows) {
+        if (!update.allowed.includes(row.plugin)) {
+            continue;
+        }
         const key = (0, schema_1.signalRefKey)(row);
         present.add(key);
         const previous = state.rowsSeen[key];
@@ -126,7 +131,7 @@ function applyRows(state, update) {
         }
         const changedAt = row.updatedAt > 0 && row.updatedAt <= update.now ? row.updatedAt : update.now;
         state.rowsSeen[key] = { active: row.active, severity: row.severity, summary: row.summary, changedAt };
-        driveBoundAlert({ state, alert: update.boundAlerts.get(key), on: row.active, at: changedAt });
+        driveSwitch({ state, update, key, on: row.active, at: changedAt });
         result.changed.push(key);
         result.dirty = true;
     }
@@ -138,34 +143,51 @@ function applyRows(state, update) {
 function clearMissingRows(state, update, present, result) {
     for (const [key, seen] of Object.entries(state.rowsSeen)) {
         const plugin = key.slice(0, key.lastIndexOf('/'));
-        if (present.has(key) || !seen.active || !update.sources.includes(plugin)) {
+        if (present.has(key) || !seen.active || !update.allowed.includes(plugin)) {
             continue;
         }
         state.rowsSeen[key] = { ...seen, active: false, changedAt: update.now };
-        driveBoundAlert({ state, alert: update.boundAlerts.get(key), on: false, at: update.now });
+        driveSwitch({ state, update, key, on: false, at: update.now });
         result.changed.push(key);
         result.dirty = true;
     }
 }
-function driveBoundAlert(input) {
-    const level = input.alert?.levels[0];
-    if (input.alert === undefined || level === undefined) {
+function driveSwitch(input) {
+    if (!input.update.switches.has(input.key)) {
         return;
     }
-    applyLevelWrite(input.state, input.alert, { severity: level.severity, on: input.on, at: input.at });
+    const current = input.state.switches[input.key];
+    if (current !== undefined && input.at < current.changedAt) {
+        return;
+    }
+    input.state.switches[input.key] = { on: input.on, changedAt: input.at };
+}
+/** A person set a signal switch. Returns true when it changed. */
+function applySignalSwitchWrite(state, refKey, write) {
+    if ((0, model_1.isSignalSwitchOn)(state, refKey) === write.on) {
+        return false;
+    }
+    state.switches[refKey] = { on: write.on, changedAt: write.at };
+    return true;
 }
 /**
- * Drop remembered rows from packages that are no longer allowed.
+ * Drop remembered rows from plugins that are no longer allowed, and switch
+ * state for signals that no longer have a switch.
  *
- * Their delivered records stay, so the reconciler still resolves anything
- * they had open. Only the memory of the row goes.
+ * Delivered records stay, so the reconciler still resolves anything that was
+ * open. Only the memory of the row or switch goes.
  */
-function pruneRows(state, sources) {
+function pruneSignals(state, keep) {
     let changed = false;
     for (const key of Object.keys(state.rowsSeen)) {
-        const plugin = key.slice(0, key.lastIndexOf('/'));
-        if (!sources.includes(plugin)) {
+        if (!keep.allowed.includes(key.slice(0, key.lastIndexOf('/')))) {
             delete state.rowsSeen[key];
+            changed = true;
+        }
+    }
+    for (const key of Object.keys(state.switches)) {
+        if (!keep.switches.has(key)) {
+            delete state.switches[key];
             changed = true;
         }
     }

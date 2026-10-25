@@ -11,3 +11,4 @@ export * from './base-accessory';
 export * from './delivery-sensor';
 export * from './host';
 export * from './maintenance-switch';
+export * from './signal-switch';

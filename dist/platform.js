@@ -16,14 +16,17 @@
  *
  * **What happens when configuration is unusable.** The platform disables
  * itself and leaves cached accessories registered, so HomeKit shows No
- * Response instead of losing the rooms built on them. The only thing that
- * unregisters an accessory is removing its alert `id` from config.
+ * Response instead of losing the rooms built on them. Only a usable config
+ * unregisters anything: an alert switch when its alert `id` is removed, and a
+ * signal switch when its box is unchecked, its signal is muted, or its plugin
+ * is no longer allowed.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PagerDutyPlatform = void 0;
 const controller_1 = require("./controller");
 const devices_1 = require("./devices");
 const collector_1 = require("./diagnostics/collector");
+const dynamic_schema_1 = require("./dynamic-schema");
 const format_1 = require("./diagnostics/format");
 const settings_1 = require("./settings");
 const utils_1 = require("./utils");
@@ -37,6 +40,7 @@ const utils_1 = require("./utils");
 const runningInstances = new WeakSet();
 const MODELS = {
     alert: 'Alert Switch',
+    signal: 'Signal Switch',
     maintenance: 'Maintenance Switch',
     delivery: 'Delivery Sensor',
 };
@@ -49,6 +53,7 @@ class PagerDutyPlatform {
     handlers = new Map();
     diagnostics;
     controller;
+    schemaWriter;
     config;
     diagnosticsTimer;
     lastDiagnosticsHealth = null;
@@ -115,6 +120,7 @@ class PagerDutyPlatform {
             return;
         }
         this.controller = controller;
+        this.startSettingsScreen(controller, config);
         const warnings = [];
         const accessories = (0, utils_1.resolveAccessories)(config, warnings);
         for (const warning of warnings) {
@@ -126,7 +132,7 @@ class PagerDutyPlatform {
             accessories,
             pluginVersion: this.pluginVersion,
             changes,
-            signalsWritten: controller.signalsWritten(),
+            catalog: controller.signalCatalog(),
         });
         for (const line of report) {
             this.log.info(line);
@@ -136,6 +142,16 @@ class PagerDutyPlatform {
         this.startDiagnostics();
         this.log.info('Platform ready');
     }
+    /** Keep the Plugin Signals section of the settings screen in line with the signal store. */
+    startSettingsScreen(controller, config) {
+        const writer = new dynamic_schema_1.DynamicSchemaWriter({ storageDir: this.api.user.storagePath(), log: this.log });
+        this.schemaWriter = writer;
+        const write = () => {
+            void writer.write({ catalog: controller.signalCatalog() ?? [], signalPlugins: config.signalPlugins });
+        };
+        controller.onCatalogChange(write);
+        write();
+    }
     async stop() {
         this.stopDiagnostics();
         for (const handler of this.handlers.values()) {
@@ -143,6 +159,7 @@ class PagerDutyPlatform {
         }
         this.handlers.clear();
         await this.controller?.stop();
+        await this.schemaWriter?.flush();
     }
     /** Keep cached accessories registered, answering No Response. */
     keepRestoredUnavailable() {
@@ -233,9 +250,7 @@ class PagerDutyPlatform {
             serialNumber: context.serialNumber,
             unavailable,
         };
-        const handler = context.kind === 'alert' && context.alertId !== undefined && context.severity !== undefined
-            ? new devices_1.AlertSwitch({ ...init, alertId: context.alertId, severity: context.severity })
-            : context.kind === 'maintenance' ? new devices_1.MaintenanceSwitch(init) : new devices_1.DeliverySensor(init);
+        const handler = createHandler(init, context);
         this.handlers.get(accessory.UUID)?.stop();
         this.handlers.set(accessory.UUID, handler);
     }
@@ -259,6 +274,12 @@ class PagerDutyPlatform {
     }
     setLevel(alertId, severity, on) {
         this.controller?.setLevel(alertId, severity, on);
+    }
+    isSignalSwitchOn(signal) {
+        return this.controller?.isSignalSwitchOn(signal) ?? false;
+    }
+    setSignalSwitch(signal, on) {
+        this.controller?.setSignalSwitch(signal, on);
     }
     isMaintenanceOn() {
         return this.controller?.isMaintenanceOn() ?? false;
@@ -320,3 +341,13 @@ class PagerDutyPlatform {
     }
 }
 exports.PagerDutyPlatform = PagerDutyPlatform;
+/** `parseAccessoryContext` guarantees the identity fields for its kind. */
+function createHandler(init, context) {
+    if (context.kind === 'alert' && context.alertId !== undefined && context.severity !== undefined) {
+        return new devices_1.AlertSwitch({ ...init, alertId: context.alertId, severity: context.severity });
+    }
+    if (context.kind === 'signal' && context.signal !== undefined) {
+        return new devices_1.SignalSwitch({ ...init, signal: context.signal });
+    }
+    return context.kind === 'maintenance' ? new devices_1.MaintenanceSwitch(init) : new devices_1.DeliverySensor(init);
+}

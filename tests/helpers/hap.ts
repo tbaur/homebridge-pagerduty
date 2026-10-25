@@ -15,7 +15,7 @@
 import type { API, HAP, PlatformAccessory, Service } from 'homebridge'
 
 import type { AccessoryHost, AccessoryInit } from '../../src/devices/host'
-import type { PluginLogger, Severity } from '../../src/types'
+import type { PluginLogger, Severity, SignalRef } from '../../src/types'
 
 /** A recorded characteristic. */
 export class FakeCharacteristic {
@@ -202,6 +202,7 @@ export function fakeLogger(): RecordingLogger {
 export interface FakeHost extends AccessoryHost {
   log: RecordingLogger
   levels: Map<string, boolean>
+  signals: Map<string, boolean>
   maintenance: boolean
   fault: boolean
   writes: string[]
@@ -215,6 +216,7 @@ export function fakeHost(): FakeHost {
     log: fakeLogger(),
     pluginVersion: '1.2.3',
     levels: new Map(),
+    signals: new Map(),
     maintenance: false,
     fault: false,
     writes: [],
@@ -222,6 +224,11 @@ export function fakeHost(): FakeHost {
     setLevel: (alertId: string, severity: Severity, on: boolean) => {
       host.writes.push(`level ${alertId}:${severity} ${on}`)
       host.levels.set(`${alertId}:${severity}`, on)
+    },
+    isSignalSwitchOn: (ref: SignalRef) => host.signals.get(`${ref.plugin}/${ref.signal}`) === true,
+    setSignalSwitch: (ref: SignalRef, on: boolean) => {
+      host.writes.push(`signal ${ref.plugin}/${ref.signal} ${on}`)
+      host.signals.set(`${ref.plugin}/${ref.signal}`, on)
     },
     isMaintenanceOn: () => host.maintenance,
     setMaintenance: (on: boolean) => {

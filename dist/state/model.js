@@ -17,6 +17,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.STATE_VERSION = void 0;
 exports.emptyState = emptyState;
+exports.isSignalSwitchOn = isSignalSwitchOn;
 exports.levelKey = levelKey;
 exports.alertTargetKey = alertTargetKey;
 exports.signalTargetKey = signalTargetKey;
@@ -36,9 +37,14 @@ function emptyState() {
         alerts: {},
         maintenance: { on: false, since: null, until: null },
         rowsSeen: {},
+        switches: {},
         delivered: {},
         rejected: {},
     };
+}
+/** True while a signal switch is on. Keyed by `<plugin>/<signal>`. */
+function isSignalSwitchOn(state, refKey) {
+    return state.switches[refKey]?.on ?? state.rowsSeen[refKey]?.active ?? false;
 }
 /** Key for one level switch. */
 function levelKey(alertId, severity) {
@@ -48,7 +54,7 @@ function levelKey(alertId, severity) {
 function alertTargetKey(alertId) {
     return `alert:${alertId}`;
 }
-/** Target key for an unbound signal row. */
+/** Target key for a signal, with or without a switch. */
 function signalTargetKey(ref) {
     return `signal:${ref.plugin}/${ref.signal}`;
 }
@@ -57,7 +63,7 @@ function alertDedupKey(source, alertId) {
     return `${source}/${alertId}`;
 }
 /**
- * `dedup_key` for an unbound row: `<source>/<plugin>/<signal>`.
+ * `dedup_key` for a signal: `<source>/<plugin>/<signal>`.
  *
  * An alert id cannot contain `/`, so the two forms cannot collide. At most
  * 32 + 1 + 128 + 1 + 64 = 226 characters, under PagerDuty's 255.

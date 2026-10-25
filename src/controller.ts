@@ -27,27 +27,30 @@ import {
   MAX_RESPONSE_BYTES,
   OUTAGE_REWARN_MS,
   REQUEST_TIMEOUT_MS,
+  SIGNAL_INTERFACE_ID,
   SIGNAL_POLL_MS,
   SIGNAL_STORE_FILE_NAME,
   STATE_FILE_NAME,
 } from './settings'
+import { allowedPlugins, signalSwitches } from './signals/config'
 import { signalRefKey } from './signals/schema'
 import { SignalReader, type PollResult } from './signals/reader'
 import { computeDesired } from './state/desired'
 import type { PersistedState } from './state/model'
-import { alertTargetKey, levelKey } from './state/model'
+import { alertTargetKey, isSignalSwitchOn, levelKey } from './state/model'
 import {
   applyKeyChange,
   applyLevelWrite,
   applyMaintenance,
   applyRows,
+  applySignalSwitchWrite,
   expireResolveTimers,
   nextDeadline,
-  pruneRows,
+  pruneSignals,
 } from './state/mutations'
 import { reconcile, type Action, type Plan } from './state/reconcile'
 import { fingerprintRoutingKey, StateStore } from './state/store'
-import type { DeliveryGauges, PluginLogger, ResolvedAlert, ResolvedConfig, Severity, SignalRow } from './types'
+import type { CatalogEntry, DeliveryGauges, PluginLogger, ResolvedAlert, ResolvedConfig, ResolvedSignal, Severity, SignalRef } from './types'
 import { describeError } from './utils/errors'
 import { forLog } from './utils/redact'
 import type { InterruptibleSleep } from './utils/timing'
@@ -71,7 +74,7 @@ export interface ControllerOptions {
   random?: () => number
   sleep?: (ms: number) => InterruptibleSleep
   store?: StateStore
-  createReader?: (path: string, sources: readonly string[]) => SignalReaderLike
+  createReader?: (path: string, allowed: readonly string[]) => SignalReaderLike
   onRequest?: (durationMs: number, ok: boolean) => void
 }
 
@@ -87,8 +90,11 @@ export class AlertController {
   private readonly sender: Sender
   private readonly health = new DeliveryHealth()
   private readonly alertsById = new Map<string, ResolvedAlert>()
-  private readonly boundAlerts = new Map<string, ResolvedAlert>()
+  private readonly allowed: readonly string[]
+  /** Signals with a switch, by `<plugin>/<signal>`. */
+  private readonly switches = new Map<string, ResolvedSignal>()
   private readonly listeners: (() => void)[] = []
+  private readonly catalogListeners: (() => void)[] = []
   private readonly abort = new AbortController()
   private readonly knownForeignWriters = new Set<string>()
   private readonly outageGapKeys = new Set<string>()
@@ -97,7 +103,8 @@ export class AlertController {
   private fault = false
   private reader: SignalReaderLike | undefined
   private storeUnreadableSince: number | null = null
-  private writtenSignals: Map<string, string[]> | undefined
+  private catalog: CatalogEntry[] | undefined
+  private catalogNames = ''
   private lastStoreWarnAt = 0
   private pendingRowSweep = false
   private started = false
@@ -115,9 +122,10 @@ export class AlertController {
     this.now = options.now ?? Date.now
     for (const alert of this.config.alerts) {
       this.alertsById.set(alert.id, alert)
-      if (alert.signal !== undefined) {
-        this.boundAlerts.set(signalRefKey(alert.signal), alert)
-      }
+    }
+    this.allowed = allowedPlugins(this.config)
+    for (const signal of signalSwitches(this.config)) {
+      this.switches.set(signalRefKey(signal), signal)
     }
     this.store = options.store ?? new StateStore({
       path: join(options.storageDir, DATA_DIR_NAME, STATE_FILE_NAME),
@@ -155,9 +163,9 @@ export class AlertController {
     this.warnAboutKeyChange(applyKeyChange(state, fingerprintRoutingKey(this.config.routingKey)))
     if (loaded.outcome === 'corrupt') {
       this.sweepClosedAlerts()
-      this.pendingRowSweep = this.config.signalSources.length > 0
+      this.pendingRowSweep = this.allowed.length > 0
     }
-    pruneRows(state, this.config.signalSources)
+    pruneSignals(state, { allowed: this.allowed, switches: new Set(this.switches.keys()) })
     this.forgetRemovedAlerts()
     if (state.maintenance.on && !this.config.maintenance.switch) {
       applyMaintenance(state, { on: false, at: this.now(), maxMinutes: this.config.maintenance.maxMinutes })
@@ -234,6 +242,25 @@ export class AlertController {
     this.kick()
   }
 
+  isSignalSwitchOn(ref: SignalRef): boolean {
+    return isSignalSwitchOn(this.requireState(), signalRefKey(ref))
+  }
+
+  /** A signal switch write. Pages or resolves with the signal's settings. */
+  setSignalSwitch(ref: SignalRef, on: boolean): void {
+    const key = signalRefKey(ref)
+    const signal = this.switches.get(key)
+    if (signal === undefined || this.stopped) {
+      return
+    }
+    if (!applySignalSwitchWrite(this.requireState(), key, { on, at: this.now() })) {
+      return
+    }
+    this.log.info(`${forLog(signal.switchName)}: switched ${on ? 'on' : 'off'}`)
+    this.persist()
+    this.kick()
+  }
+
   isDeliveryFault(): boolean {
     return this.fault
   }
@@ -246,7 +273,7 @@ export class AlertController {
       heldByMaintenance: this.plan.heldByMaintenance.length,
       rejected: this.plan.rejected.length,
       deliveryFault: this.fault,
-      storeOk: this.config.signalSources.length === 0 ? null : this.storeUnreadableSince === null,
+      storeOk: this.allowed.length === 0 ? null : this.storeUnreadableSince === null,
       outage: this.sender.inOutage,
     }
   }
@@ -420,18 +447,22 @@ export class AlertController {
 
   // --- Signal store ----------------------------------------------------------------
 
+  /**
+   * The store is polled even when no plugin is allowed, because the settings
+   * screen lists every plugin that writes to it. It is created only when a
+   * plugin is allowed, and a missing or broken store is a fault only then.
+   */
   private startSignals(): void {
-    if (this.config.signalSources.length === 0) {
-      return
-    }
-    const path = join(this.options.storageDir, DATA_DIR_NAME, SIGNAL_STORE_FILE_NAME)
+    const path = join(this.options.storageDir, DATA_DIR_NAME, SIGNAL_INTERFACE_ID, SIGNAL_STORE_FILE_NAME)
     const create = this.options.createReader
-      ?? ((file, sources) => new SignalReader({ path: file, sources, log: this.log }))
-    this.reader = create(path, this.config.signalSources)
-    try {
-      this.reader.create()
-    } catch (error) {
-      this.noteStoreUnavailable(describeError(error))
+      ?? ((file, allowed) => new SignalReader({ path: file, allowed, log: this.log }))
+    this.reader = create(path, this.allowed)
+    if (this.allowed.length > 0) {
+      try {
+        this.reader.create()
+      } catch (error) {
+        this.noteStoreUnavailable(describeError(error))
+      }
     }
     this.pollSignals()
     this.timers.poll = setInterval(() => this.pollSignals(), SIGNAL_POLL_MS)
@@ -439,12 +470,18 @@ export class AlertController {
   }
 
   /**
-   * The signal names each listed plugin had written at the last read, or
-   * undefined when the store has not been read. A store that does not exist
-   * yet reads as empty.
+   * Every plugin's signals at the last read, for the settings screen and the
+   * startup report. Undefined when the store has not been read. A store that
+   * does not exist yet reads as empty. The text is the other plugin's and is
+   * untrusted.
    */
-  signalsWritten(): ReadonlyMap<string, readonly string[]> | undefined {
-    return this.writtenSignals
+  signalCatalog(): readonly CatalogEntry[] | undefined {
+    return this.catalog
+  }
+
+  /** Called when a plugin or signal appears in the store or leaves it. */
+  onCatalogChange(listener: () => void): void {
+    this.catalogListeners.push(listener)
   }
 
   private pollSignals(): void {
@@ -454,23 +491,43 @@ export class AlertController {
     }
     if (result.kind === 'unavailable') {
       if (result.reason === 'missing') {
-        this.writtenSignals = new Map()
+        this.updateCatalog([])
       }
-      this.noteStoreUnavailable(result.reason)
+      if (this.allowed.length > 0) {
+        this.noteStoreUnavailable(result.reason)
+      } else if (result.reason !== 'missing') {
+        this.log.debug(`signal store unavailable (${result.reason})`)
+      }
       return
     }
     this.noteStoreAvailable()
     if (result.kind === 'rows') {
-      this.writtenSignals = groupSignalNames(result.rows)
+      this.updateCatalog(result.catalog)
       this.applySignalRows(result)
     }
   }
 
+  private updateCatalog(catalog: CatalogEntry[]): void {
+    this.catalog = catalog
+    const names = catalog.map((entry) => signalRefKey(entry)).join('\n')
+    if (names === this.catalogNames) {
+      return
+    }
+    this.catalogNames = names
+    for (const listener of this.catalogListeners) {
+      try {
+        listener()
+      } catch (error) {
+        this.log.debug(`catalog listener failed: ${describeError(error)}`)
+      }
+    }
+  }
+
   private applySignalRows(result: Extract<PollResult, { kind: 'rows' }>): void {
-    for (const plugin of result.foreignWriters) {
-      if (!this.knownForeignWriters.has(plugin)) {
-        this.knownForeignWriters.add(plugin)
-        this.log.info(`signal store: ${forLog(plugin)} writes signals but is not in signals.sources; ignored`)
+    for (const entry of result.catalog) {
+      if (!this.allowed.includes(entry.plugin) && !this.knownForeignWriters.has(entry.plugin)) {
+        this.knownForeignWriters.add(entry.plugin)
+        this.log.info(`signal store: ${forLog(entry.plugin)} writes signals; allow it under Plugin Signals to page for it`)
       }
     }
     if (result.invalidRows > 0) {
@@ -483,8 +540,8 @@ export class AlertController {
     const applied = applyRows(state, {
       rows: result.rows,
       complete: result.complete,
-      sources: this.config.signalSources,
-      boundAlerts: this.boundAlerts,
+      allowed: this.allowed,
+      switches: new Set(this.switches.keys()),
       now: this.now(),
     })
     const swept = this.pendingRowSweep && this.sweepClosedRows()
@@ -558,7 +615,7 @@ export class AlertController {
     }
   }
 
-  /** The same sweep for unbound rows, once the first read says which exist. */
+  /** The same sweep for signals, once the first read says which exist. */
   private sweepClosedRows(): boolean {
     const state = this.requireState()
     const desired = computeDesired(this.config, state)
@@ -603,21 +660,6 @@ export class AlertController {
     }
     return this.state
   }
-}
-
-function groupSignalNames(rows: readonly SignalRow[]): Map<string, string[]> {
-  const grouped = new Map<string, string[]>()
-  for (const row of rows) {
-    const names = grouped.get(row.plugin) ?? []
-    if (!names.includes(row.signal)) {
-      names.push(row.signal)
-    }
-    grouped.set(row.plugin, names)
-  }
-  for (const names of grouped.values()) {
-    names.sort()
-  }
-  return grouped
 }
 
 function levelName(alert: ResolvedAlert, severity: Severity): string {

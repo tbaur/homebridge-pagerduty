@@ -6,8 +6,8 @@
  */
 
 import { formatStartupReport, resolveAccessories } from '../../../src/utils'
-import type { ResolvedAccessory, ResolvedConfig } from '../../../src/types'
-import { alert, leveledAlert, resolvedConfig } from '../../helpers/config'
+import type { CatalogEntry, ResolvedAccessory, ResolvedConfig } from '../../../src/types'
+import { alert, allowedPlugin, leveledAlert, resolvedConfig, signal } from '../../helpers/config'
 import { FAKE_ROUTING_KEY } from '../../helpers/secrets'
 
 /** `created` lists accessory names; `renamed` maps a current name to its old one. */
@@ -36,7 +36,7 @@ describe('formatStartupReport', () => {
     const config = resolvedConfig({
       region: 'eu',
       source: 'cabin',
-      signalSources: ['homebridge-example', 'homebridge-other'],
+      signalPlugins: [allowedPlugin('homebridge-example'), allowedPlugin('homebridge-other')],
       alerts: [
         alert({ bypassMaintenance: true }),
         leveledAlert('freezer', ['warning', 'critical']),
@@ -46,7 +46,6 @@ describe('formatStartupReport', () => {
           summary: 'Sump level high',
           levels: [{ severity: 'error', name: 'Sump' }],
           resolveAfterMinutes: 60,
-          signal: { plugin: 'homebridge-example', signal: 'sump-high' },
         }),
       ],
       heldAlertIds: ['garage-door'],
@@ -55,7 +54,7 @@ describe('formatStartupReport', () => {
     })
 
     expect(report(config)).toEqual([
-      'Starting v1.2.3: region EU, source cabin, signal sources 2',
+      'Starting v1.2.3: region EU, source cabin, plugins allowed 2',
       'Alert switch: leak "Water detected in Zone One" (critical)',
       'Alert switch: freezer "Freezer temperature is high" (warning, critical)',
       'Alert switch: sump "Sump level high" (error)',
@@ -111,44 +110,65 @@ describe('formatStartupReport', () => {
     ])
   })
 
-  it('lists the signals each listed plugin has written, and which ones the alerts follow', () => {
-    const config = resolvedConfig({
-      signalSources: ['homebridge-example', 'homebridge-quiet'],
-      alerts: [
-        alert({ id: 'sump', signal: { plugin: 'homebridge-example', signal: 'sump-high' } }),
-        alert({ id: 'typo', signal: { plugin: 'homebridge-example', signal: 'sump-hgih' } }),
-      ],
-    })
-    const signalsWritten = new Map([['homebridge-example', ['flood', 'sump-high']]])
-
-    const lines = formatStartupReport({
+  function withCatalog(config: ResolvedConfig, catalog?: CatalogEntry[]): string[] {
+    return formatStartupReport({
       config,
       accessories: resolveAccessories(config),
       pluginVersion: '1.2.3',
       changes: { created: new Set(), renamed: new Map() },
-      signalsWritten,
+      catalog,
     })
+  }
 
-    expect(lines).toContain('Signals from homebridge-example: flood, sump-high; followed: sump-high; followed but not written: sump-hgih')
-    expect(lines).toContain('Signals from homebridge-quiet: none written yet')
-    expect(lines.indexOf('Signals from homebridge-example: flood, sump-high; followed: sump-high; followed but not written: sump-hgih'))
+  function written(plugin: string, names: string[]): CatalogEntry[] {
+    return names.map((name) => ({ plugin, signal: name, summary: 'Text' }))
+  }
+
+  it('lists what each plugin writes, which plugins may not page, and which signals are muted', () => {
+    const config = resolvedConfig({
+      signalPlugins: [
+        allowedPlugin('homebridge-example', [signal({ signal: 'flood', enabled: false })]),
+        allowedPlugin('homebridge-quiet'),
+        { plugin: 'homebridge-off', allow: false, signals: [] },
+      ],
+    })
+    const catalog = [...written('homebridge-example', ['flood', 'sump-high']), ...written('homebridge-stranger', ['x'])]
+
+    const lines = withCatalog(config, catalog)
+
+    expect(lines.filter((line) => line.startsWith('Signals from'))).toEqual([
+      'Signals from homebridge-example: flood, sump-high; muted: flood',
+      'Signals from homebridge-quiet: none written yet',
+      'Signals from homebridge-stranger: x; not allowed, so nothing is paged',
+    ])
+    expect(lines.indexOf('Signals from homebridge-example: flood, sump-high; muted: flood'))
       .toBeLessThan(lines.findIndex((line) => line.startsWith('Maintenance switch:')))
   })
 
-  it('caps a long signal list and leaves signal lines out when the store was not read', () => {
-    const config = resolvedConfig({ signalSources: ['homebridge-example'] })
-    const names = Array.from({ length: 23 }, (_, index) => `s${String(index).padStart(2, '0')}`)
-    const build = (signalsWritten?: Map<string, string[]>): string[] => formatStartupReport({
+  it('reports each signal switch with the signal it follows', () => {
+    const config = resolvedConfig({
+      signalPlugins: [allowedPlugin('homebridge-example', [signal({ signal: 'door', switch: true, switchName: 'Zone Two' })])],
+    })
+    const accessories = resolveAccessories(config)
+    const door = accessories.find((accessory) => accessory.kind === 'signal')!
+
+    const lines = formatStartupReport({
       config,
-      accessories: resolveAccessories(config),
+      accessories,
       pluginVersion: '1.2.3',
-      changes: { created: new Set(), renamed: new Map() },
-      signalsWritten,
+      changes: { created: new Set([door]), renamed: new Map() },
     })
 
-    const line = build(new Map([['homebridge-example', names]])).find((entry) => entry.startsWith('Signals from'))
+    expect(lines).toContain('Signal switch: Zone Two (new) for homebridge-example/door')
+  })
+
+  it('caps a long signal list and leaves signal lines out when the store was not read', () => {
+    const config = resolvedConfig({ signalPlugins: [allowedPlugin('homebridge-example')] })
+    const names = Array.from({ length: 23 }, (_, index) => `s${String(index).padStart(2, '0')}`)
+
+    const line = withCatalog(config, written('homebridge-example', names)).find((entry) => entry.startsWith('Signals from'))
     expect(line).toBe(`Signals from homebridge-example: ${names.slice(0, 20).join(', ')} and 3 more`)
-    expect(build().some((entry) => entry.startsWith('Signals from'))).toBe(false)
+    expect(withCatalog(config).some((entry) => entry.startsWith('Signals from'))).toBe(false)
   })
 
   it('leaves out accessories that are turned off', () => {

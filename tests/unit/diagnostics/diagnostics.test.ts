@@ -27,7 +27,7 @@ const CONFIG: PagerDutyPlatformConfig = {
   platform: 'PagerDuty',
   routingKey: FAKE_ROUTING_KEY,
   alerts: [{ id: 'leak', name: 'Zone One Leak', summary: 'Water detected' }],
-  signals: { sources: ['homebridge-example'] },
+  signals: { 'homebridge-example': { allow: true }, 'homebridge-other': { allow: false } },
   maintenance: { switch: true },
   options: { diagnosticsInterval: 60 },
 }
@@ -94,7 +94,7 @@ describe('DiagnosticsCollector', () => {
       region: 'us',
       alerts: 1,
       maintenanceSwitch: true,
-      signalSources: 1,
+      signalPluginsAllowed: 1,
       deliveryFaultSensor: true,
       dryRun: false,
       diagnosticsInterval: 60,
@@ -108,7 +108,7 @@ describe('DiagnosticsCollector', () => {
   it('echoes an empty config without failing', () => {
     const subject = new DiagnosticsCollector({ pluginVersion: '1', config: { platform: 'PagerDuty' } })
 
-    expect(subject.snapshot('x', HEALTHY).config).toEqual(expect.objectContaining({ routingKey: false, alerts: 0, signalSources: 0 }))
+    expect(subject.snapshot('x', HEALTHY).config).toEqual(expect.objectContaining({ routingKey: false, alerts: 0, signalPluginsAllowed: 0 }))
   })
 })
 

@@ -7,14 +7,16 @@
  *
  * @fileoverview Reading the signal store.
  *
- * `node:sqlite` is loaded only when `signals.sources` is non-empty, so a user
- * who only wants switches never loads it (or sees its ExperimentalWarning on
+ * `node:sqlite` is loaded only once the store file exists, so a user with no
+ * plugin that writes signals never loads it (or sees its ExperimentalWarning on
  * Node 22). `DatabaseSync` is synchronous, so every call here blocks the bridge
  * process; the busy timeout is short and a busy store skips the poll.
  *
  * Rules this file enforces:
  * - The allowlist is applied in the query, so rows from other writers can never
  *   push allowed rows past the read cap.
+ * - Rows from plugins that are not allowed are read only as names and text for
+ *   the settings screen, never as signals.
  * - A read error is never a clear. Missing, busy and corrupt all report
  *   `unavailable`, and the caller keeps the last rows it saw.
  * - Each poll `stat`s the file. A new device or inode number means the file was
@@ -30,12 +32,11 @@ const schema_1 = require("./schema");
 function loadNodeSqlite() {
     return process.getBuiltinModule('node:sqlite');
 }
-/** Polls `homebridge-pagerduty/signals.sqlite` for allowlisted rows. */
+/** Polls the signal store for allowlisted rows. */
 class SignalReader {
     options;
     connection;
     sqlite;
-    hasWarnedVersion = false;
     constructor(options) {
         this.options = options;
     }
@@ -99,17 +100,17 @@ class SignalReader {
             // Node 22.16, and the floor is 22.13.
             db.exec(`PRAGMA busy_timeout = ${settings_1.READER_BUSY_TIMEOUT_MS}`);
             db.exec(schema_1.SIGNAL_SCHEMA_SQL);
-            this.checkVersion(db);
             this.tightenModes();
-            const placeholders = this.options.sources.map(() => '?').join(', ');
+            const placeholders = this.options.allowed.map(() => '?').join(', ');
             const stats = (0, node_fs_1.statSync)(this.options.path);
             this.connection = {
                 db,
                 dev: stats.dev,
                 ino: stats.ino,
-                rows: db.prepare('SELECT plugin, signal, active, severity, summary, updated_at FROM signals '
-                    + `WHERE plugin IN (${placeholders}) ORDER BY updated_at DESC LIMIT ${settings_1.MAX_SIGNAL_ROWS}`),
-                foreign: db.prepare(`SELECT DISTINCT plugin FROM signals WHERE plugin NOT IN (${placeholders}) LIMIT ${settings_1.MAX_FOREIGN_WRITERS_LISTED}`),
+                rows: this.options.allowed.length === 0 ? undefined : db.prepare('SELECT plugin, signal, active, severity, summary, updated_at FROM signals '
+                    + `WHERE plugin IN (${placeholders}) ORDER BY updated_at DESC LIMIT ${settings_1.MAX_SIGNAL_ROWS + 1}`),
+                catalog: db.prepare('SELECT plugin, signal, summary FROM signals WHERE plugin <> ? '
+                    + `ORDER BY plugin, signal LIMIT ${settings_1.MAX_CATALOG_SCAN_ROWS}`),
                 dataVersion: db.prepare('PRAGMA data_version'),
                 lastDataVersion: undefined,
             };
@@ -124,10 +125,10 @@ class SignalReader {
         if (connection.lastDataVersion !== undefined && version === connection.lastDataVersion) {
             return { kind: 'unchanged' };
         }
-        const raw = connection.rows.all(...this.options.sources);
+        const raw = (connection.rows?.all(...this.options.allowed) ?? []);
         const rows = [];
         let invalidRows = 0;
-        for (const entry of raw) {
+        for (const entry of raw.slice(0, settings_1.MAX_SIGNAL_ROWS)) {
             const row = (0, schema_1.validateRow)(entry);
             if (row === undefined) {
                 invalidRows += 1;
@@ -136,22 +137,12 @@ class SignalReader {
                 rows.push(row);
             }
         }
-        const foreignWriters = connection.foreign.all(...this.options.sources)
-            .map((entry) => entry.plugin)
-            .filter((plugin) => typeof plugin === 'string');
+        const catalog = connection.catalog.all(settings_1.PLUGIN_NAME)
+            .map(schema_1.validateCatalogEntry)
+            .filter((entry) => entry !== undefined)
+            .slice(0, settings_1.MAX_CATALOG_ROWS);
         connection.lastDataVersion = version;
-        return { kind: 'rows', rows, complete: raw.length < settings_1.MAX_SIGNAL_ROWS, foreignWriters, invalidRows };
-    }
-    checkVersion(db) {
-        const row = db.prepare('PRAGMA user_version').get();
-        const version = Number(row?.user_version ?? 0);
-        if (version === 0) {
-            db.exec(`PRAGMA user_version = ${schema_1.SIGNAL_SCHEMA_VERSION}`);
-        }
-        else if (version > schema_1.SIGNAL_SCHEMA_VERSION && !this.hasWarnedVersion) {
-            this.hasWarnedVersion = true;
-            this.options.log.warn(`signal store is interface version ${version}; this plugin reads version ${schema_1.SIGNAL_SCHEMA_VERSION}. Update homebridge-pagerduty`);
-        }
+        return { kind: 'rows', rows, complete: raw.length <= settings_1.MAX_SIGNAL_ROWS, catalog, invalidRows };
     }
     /** Owner-only on POSIX systems, for the main file and SQLite's two side files. */
     tightenModes() {

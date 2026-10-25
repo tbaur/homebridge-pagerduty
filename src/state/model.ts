@@ -62,6 +62,12 @@ export interface PersistedState {
   maintenance: { on: boolean; since: number | null; until: number | null }
   /** Key: `<plugin>/<signal>`. */
   rowsSeen: Record<string, RowSeen>
+  /**
+   * Signal switches, key `<plugin>/<signal>`. The row sets a switch when it
+   * changes, and a person can set it by hand in between. Absent until either
+   * happens, and the row decides until then.
+   */
+  switches: Record<string, LevelState>
   /** Key: {@link alertTargetKey} or {@link signalTargetKey}. */
   delivered: Record<string, DeliveredRecord>
   /** Same keys as `delivered`. */
@@ -77,9 +83,15 @@ export function emptyState(): PersistedState {
     alerts: {},
     maintenance: { on: false, since: null, until: null },
     rowsSeen: {},
+    switches: {},
     delivered: {},
     rejected: {},
   }
+}
+
+/** True while a signal switch is on. Keyed by `<plugin>/<signal>`. */
+export function isSignalSwitchOn(state: PersistedState, refKey: string): boolean {
+  return state.switches[refKey]?.on ?? state.rowsSeen[refKey]?.active ?? false
 }
 
 /** Key for one level switch. */
@@ -92,7 +104,7 @@ export function alertTargetKey(alertId: string): string {
   return `alert:${alertId}`
 }
 
-/** Target key for an unbound signal row. */
+/** Target key for a signal, with or without a switch. */
 export function signalTargetKey(ref: SignalRef): string {
   return `signal:${ref.plugin}/${ref.signal}`
 }
@@ -103,7 +115,7 @@ export function alertDedupKey(source: string, alertId: string): string {
 }
 
 /**
- * `dedup_key` for an unbound row: `<source>/<plugin>/<signal>`.
+ * `dedup_key` for a signal: `<source>/<plugin>/<signal>`.
  *
  * An alert id cannot contain `/`, so the two forms cannot collide. At most
  * 32 + 1 + 128 + 1 + 64 = 226 characters, under PagerDuty's 255.

@@ -64,7 +64,15 @@ export const DATA_DIR_NAME = 'homebridge-pagerduty'
 /** Plugin state, in {@link DATA_DIR_NAME}. Private to this plugin. */
 export const STATE_FILE_NAME = 'state.json'
 
-/** The published signal store, in {@link DATA_DIR_NAME}. See docs/SIGNALS.md. */
+/**
+ * The signal store interface identifier, a directory in {@link DATA_DIR_NAME}.
+ * Other plugins write to this exact path, so it changes only for a change that
+ * would break a writer, never for a release on its own. See "Interface
+ * identifier" in docs/SIGNALS.md and the rules in DEVELOPMENT.md.
+ */
+export const SIGNAL_INTERFACE_ID = 'signals-2026-10-24'
+
+/** The published signal store, in {@link SIGNAL_INTERFACE_ID}. */
 export const SIGNAL_STORE_FILE_NAME = 'signals.sqlite'
 
 /** Owner-only: alert names and times are nobody else's business. */
@@ -131,11 +139,52 @@ export const SIGNAL_STORE_FAULT_AFTER_MS = 300_000
  */
 export const READER_BUSY_TIMEOUT_MS = 250
 
-/** Read cap, applied after the allowlist filter in the query. */
+/**
+ * Read cap, applied after the allowlist filter in the query. The query asks
+ * for one row more, so a read of exactly this many is known to be complete.
+ */
 export const MAX_SIGNAL_ROWS = 1_000
 
-/** Writers not on the allowlist, listed once each so a user can add them. */
-export const MAX_FOREIGN_WRITERS_LISTED = 20
+/** Plugins shown under Plugin Signals and accepted in `signals`. */
+export const MAX_SIGNAL_PLUGINS = 20
+
+/** Signals per plugin shown under Plugin Signals and accepted in `signals`. */
+export const MAX_SIGNALS_PER_PLUGIN = 50
+
+/** Read cap for the list of every plugin's signals, which only feeds the settings screen. */
+export const MAX_CATALOG_ROWS = MAX_SIGNAL_PLUGINS * MAX_SIGNALS_PER_PLUGIN
+
+/**
+ * Rows scanned to fill the catalog. The table's `CHECK` accepts some names that
+ * validation rejects, so the cap on valid rows is applied after validation,
+ * and this bounds the scan.
+ */
+export const MAX_CATALOG_SCAN_ROWS = MAX_CATALOG_ROWS * 5
+
+/** Rejected in any name or text this plugin accepts from config or another plugin. */
+export const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/
+
+/**
+ * Signal switches exposed. With every alert at four levels, the maintenance
+ * switch and the delivery sensor, this stays inside the 149 accessories a
+ * bridge can hold.
+ */
+export const MAX_SIGNAL_SWITCHES = 20
+
+/** `severity` value in `signals` that keeps the plugin's own severity. */
+export const SEVERITY_FROM_PLUGIN = 'plugin'
+
+// --- Settings screen ---------------------------------------------------------
+
+/**
+ * Must match `dynamicSchemaVersion` in `config.schema.json`. Config UI X then
+ * reads `<storage>/.homebridge-pagerduty-v<version>.schema.json` instead of
+ * the static schema.
+ */
+export const DYNAMIC_SCHEMA_VERSION = 1
+
+/** The settings screen this plugin writes, in the storage directory itself. */
+export const DYNAMIC_SCHEMA_FILE_NAME = `.homebridge-pagerduty-v${DYNAMIC_SCHEMA_VERSION}.schema.json`
 
 // --- Limits ------------------------------------------------------------------
 

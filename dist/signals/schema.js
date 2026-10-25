@@ -11,20 +11,22 @@
  * `CREATE TABLE IF NOT EXISTS` means the first process to run it decides the
  * table. Every writer therefore runs this text unchanged; docs/SIGNALS.md
  * publishes it verbatim and a test asserts the two match. Changing it is an
- * interface change: raise {@link SIGNAL_SCHEMA_VERSION} and say why.
+ * interface change: it needs a new `SIGNAL_INTERFACE_ID`. See DEVELOPMENT.md.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SIGNAL_SCHEMA_SQL = exports.SIGNAL_SCHEMA_VERSION = void 0;
+exports.SIGNAL_SCHEMA_SQL = void 0;
 exports.isValidPluginName = isValidPluginName;
 exports.isAllowableSource = isAllowableSource;
 exports.isValidSignalName = isValidSignalName;
 exports.parseSignalRef = parseSignalRef;
 exports.signalRefKey = signalRefKey;
+exports.pluginConfigKey = pluginConfigKey;
+exports.pluginFromConfigKey = pluginFromConfigKey;
+exports.defaultSignalSwitchName = defaultSignalSwitchName;
 exports.validateRow = validateRow;
+exports.validateCatalogEntry = validateCatalogEntry;
 const settings_1 = require("../settings");
 const types_1 = require("../types");
-/** `PRAGMA user_version` for this schema. A writer that reads higher stops. */
-exports.SIGNAL_SCHEMA_VERSION = 1;
 /** The schema, verbatim. See the file header before changing a character. */
 exports.SIGNAL_SCHEMA_SQL = `PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS signals (
@@ -36,24 +38,23 @@ CREATE TABLE IF NOT EXISTS signals (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (plugin, signal)
 ) STRICT;`;
-/** This plugin's own package name, which may never be a signal source. */
-const SELF = 'homebridge-pagerduty';
 /**
  * An npm package name, scoped or not, restricted to the characters the schema
  * allows. The schema is the stricter of the two, so it decides.
  */
-const PLUGIN_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const SIGNAL_NAME = /^[a-z0-9._-]{1,64}$/;
+const CONTROL_CHARACTER_RUNS = new RegExp(`${settings_1.CONTROL_CHARACTERS.source}+`, 'g');
 /** True for a value usable as a `plugin` column and an allowlist entry. */
 function isValidPluginName(value) {
     return typeof value === 'string'
         && value.length >= 1
         && value.length <= 128
-        && PLUGIN_NAME.test(value);
+        && PACKAGE_NAME.test(value);
 }
-/** True when a package may be put on the `signals.sources` allowlist. */
+/** True when a package may be allowed to page. */
 function isAllowableSource(value) {
-    return isValidPluginName(value) && value !== SELF;
+    return isValidPluginName(value) && value !== settings_1.PLUGIN_NAME;
 }
 /** True for a value usable as a `signal` column. */
 function isValidSignalName(value) {
@@ -82,6 +83,27 @@ function signalRefKey(ref) {
     return `${ref.plugin}/${ref.signal}`;
 }
 /**
+ * The key a plugin is stored under in `signals`.
+ *
+ * Config UI X builds JSON pointers from property names without escaping them,
+ * so the `/` of a scoped package breaks the settings screen. A package name
+ * cannot contain `:`, so `@scope:name` maps back to `@scope/name` unambiguously.
+ */
+function pluginConfigKey(plugin) {
+    return plugin.replace('/', ':');
+}
+/** The package name for a `signals` key, or undefined when it is not one. */
+function pluginFromConfigKey(key) {
+    const plugin = key.replace(':', '/');
+    return !plugin.includes(':') && isAllowableSource(plugin) ? plugin : undefined;
+}
+/** `cloud-offline` becomes `Cloud Offline`. Used until the user names the switch. */
+function defaultSignalSwitchName(signal) {
+    const words = signal.split(/[-_.]+/).filter((word) => word.length > 0);
+    const name = words.map((word) => `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}`).join(' ');
+    return name.length > 0 ? name : signal;
+}
+/**
  * Validate one row as read from SQLite.
  *
  * The `CHECK` constraints already stop a bad write, but the table may have been
@@ -98,11 +120,35 @@ function validateRow(raw) {
     if (activeNumber !== 0 && activeNumber !== 1) {
         return undefined;
     }
-    if (typeof summary !== 'string' || summary.length < 1 || summary.length > settings_1.MAX_SUMMARY_LENGTH) {
+    const cleanSummary = cleanSummaryText(summary);
+    if (cleanSummary === undefined) {
         return undefined;
     }
     if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) {
         return undefined;
     }
-    return { plugin, signal, active: activeNumber === 1, severity, summary, updatedAt };
+    return { plugin, signal, active: activeNumber === 1, severity, summary: cleanSummary, updatedAt };
+}
+/**
+ * Validate one row of the list of every plugin's signals. Rows from this
+ * plugin's own name are dropped, because it can never be allowed.
+ */
+function validateCatalogEntry(raw) {
+    const { plugin, signal } = raw;
+    const summary = cleanSummaryText(raw.summary);
+    return isAllowableSource(plugin) && isValidSignalName(signal) && summary !== undefined
+        ? { plugin, signal, summary }
+        : undefined;
+}
+/**
+ * The summary with each run of control characters replaced by a space, or
+ * undefined when it is not 1 to 1024 characters of text. The text is sent on to
+ * PagerDuty and may be logged, so control characters never get past this point.
+ * They are replaced rather than rejected, because a rejected row is a missed page.
+ */
+function cleanSummaryText(value) {
+    if (typeof value !== 'string' || value.length < 1 || value.length > settings_1.MAX_SUMMARY_LENGTH) {
+        return undefined;
+    }
+    return value.replace(CONTROL_CHARACTER_RUNS, ' ');
 }

@@ -10,7 +10,7 @@
 
 import { computeDesired } from '../../../src/state/desired'
 import { emptyState, type PersistedState } from '../../../src/state/model'
-import { alert, leveledAlert, resolvedConfig } from '../../helpers/config'
+import { allowedPlugin, leveledAlert, resolvedConfig, signal } from '../../helpers/config'
 
 function stateWith(patch: Partial<PersistedState>): PersistedState {
   return { ...emptyState(), ...patch }
@@ -55,24 +55,8 @@ describe('computeDesired', () => {
     expect(desired.get('alert:broken')!.held).toBe(true)
   })
 
-  it('gives a bound alert the severity of the last row seen, and the row text as detail', () => {
-    const bound = alert({ id: 'sump', levels: [{ severity: 'error', name: 'Sump' }], signal: { plugin: 'homebridge-example', signal: 'sump-high' } })
-    const config = resolvedConfig({ alerts: [bound], signalSources: ['homebridge-example'] })
-    const state = stateWith({
-      levels: { 'sump:error': { on: true, changedAt: 7 } },
-      rowsSeen: { 'homebridge-example/sump-high': { active: true, severity: 'critical', summary: 'Level 90%', changedAt: 7 } },
-    })
-
-    const desired = computeDesired(config, state)
-
-    expect(desired.get('alert:sump')).toEqual(expect.objectContaining({ open: true, severity: 'critical', summary: bound.summary }))
-    expect(desired.get('alert:sump')!.details.custom).toEqual({ origin: 'signal', level: 'Sump', detail: 'Level 90%' })
-    // A bound row never becomes a target of its own.
-    expect([...desired.keys()]).toEqual(['alert:sump'])
-  })
-
-  it('makes an unbound allowlisted row a target of its own', () => {
-    const config = resolvedConfig({ alerts: [], signalSources: ['homebridge-example'] })
+  it('makes a row from an allowed plugin a target, using the plugin severity and text by default', () => {
+    const config = resolvedConfig({ alerts: [], signalPlugins: [allowedPlugin('homebridge-example')] })
     const state = stateWith({
       rowsSeen: { 'homebridge-example/door': { active: true, severity: 'warning', summary: 'Door open', changedAt: 3 } },
     })
@@ -80,13 +64,56 @@ describe('computeDesired', () => {
     const target = computeDesired(config, state).get('signal:homebridge-example/door')!
 
     expect(target).toEqual(expect.objectContaining({
-      open: true, severity: 'warning', summary: 'Door open', dedupKey: 'homebridge/homebridge-example/door', bypassMaintenance: false,
+      open: true, severity: 'warning', summary: 'Door open', dedupKey: 'homebridge/homebridge-example/door', bypassMaintenance: false, changedAt: 3,
     }))
     expect(target.details).toEqual({ component: 'door', group: 'homebridge-example', custom: { origin: 'signal' } })
   })
 
-  it('ignores rows from packages that are not on the allowlist, and malformed keys', () => {
-    const config = resolvedConfig({ alerts: [], signalSources: ['homebridge-example'] })
+  it('applies the title, severity and maintenance overrides, keeping the plugin text as detail', () => {
+    const settings = signal({ signal: 'door', summary: 'Zone Two door open', severity: 'critical', bypassMaintenance: true })
+    const config = resolvedConfig({ alerts: [], signalPlugins: [allowedPlugin('homebridge-example', [settings])] })
+    const state = stateWith({
+      rowsSeen: { 'homebridge-example/door': { active: true, severity: 'warning', summary: 'Door open', changedAt: 3 } },
+    })
+
+    const target = computeDesired(config, state).get('signal:homebridge-example/door')!
+
+    expect(target).toEqual(expect.objectContaining({ severity: 'critical', summary: 'Zone Two door open', bypassMaintenance: true }))
+    expect(target.details.custom).toEqual({ origin: 'signal', detail: 'Door open' })
+  })
+
+  it('leaves out a muted signal, so anything it had open resolves', () => {
+    const config = resolvedConfig({ alerts: [], signalPlugins: [allowedPlugin('homebridge-example', [signal({ signal: 'door', enabled: false })])] })
+    const state = stateWith({
+      rowsSeen: { 'homebridge-example/door': { active: true, severity: 'warning', summary: 'Door open', changedAt: 3 } },
+    })
+
+    expect(computeDesired(config, state).has('signal:homebridge-example/door')).toBe(false)
+  })
+
+  it('follows the switch of a signal that has one, including before any row exists', () => {
+    const settings = signal({ signal: 'door', switch: true, switchName: 'Zone Two' })
+    const config = resolvedConfig({ alerts: [], signalPlugins: [allowedPlugin('homebridge-example', [settings])] })
+
+    expect(computeDesired(config, emptyState()).get('signal:homebridge-example/door')).toEqual(expect.objectContaining({
+      open: false, severity: 'critical', summary: 'Zone Two',
+    }))
+
+    const state = stateWith({
+      rowsSeen: { 'homebridge-example/door': { active: false, severity: 'warning', summary: 'Door shut', changedAt: 3 } },
+      switches: { 'homebridge-example/door': { on: true, changedAt: 9 } },
+    })
+    const target = computeDesired(config, state).get('signal:homebridge-example/door')!
+
+    expect(target).toEqual(expect.objectContaining({ open: true, severity: 'warning', summary: 'Door shut', changedAt: 9 }))
+    expect(target.details.custom).toEqual({ origin: 'switch' })
+  })
+
+  it('ignores rows from plugins that are not allowed, and malformed keys', () => {
+    const config = resolvedConfig({
+      alerts: [],
+      signalPlugins: [allowedPlugin('homebridge-example'), { plugin: 'homebridge-other', allow: false, signals: [] }],
+    })
     const state = stateWith({
       rowsSeen: {
         'homebridge-other/door': { active: true, severity: 'warning', summary: 'x', changedAt: 1 },

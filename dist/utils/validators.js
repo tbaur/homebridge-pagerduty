@@ -24,9 +24,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ALERT_ID_PATTERN = exports.SOURCE_PATTERN = exports.ROUTING_KEY_PATTERN = void 0;
 exports.validateConfig = validateConfig;
-exports.defaultLevelName = defaultLevelName;
+exports.levelSwitchName = levelSwitchName;
 exports.resolveDiagnosticsIntervalSec = resolveDiagnosticsIntervalSec;
 exports.resolveAccessories = resolveAccessories;
+const config_1 = require("../signals/config");
 const schema_1 = require("../signals/schema");
 const settings_1 = require("../settings");
 const types_1 = require("../types");
@@ -35,7 +36,7 @@ const redact_1 = require("./redact");
 exports.ROUTING_KEY_PATTERN = /^[A-Za-z0-9]{32}$/;
 exports.SOURCE_PATTERN = /^[A-Za-z0-9._-]{1,32}$/;
 exports.ALERT_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
-const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
+const MAX_LISTED_SKIPPED_SWITCHES = 5;
 /**
  * Validate a platform configuration block.
  *
@@ -56,9 +57,8 @@ function validateConfig(raw) {
     }
     const region = validateRegion(config.region, warnings);
     const source = validateSource(config.source, errors);
-    const signalSources = validateSources(config.signals?.sources, warnings);
+    const signalPlugins = validateSignalPlugins(config.signals, warnings);
     const { alerts, heldAlertIds } = validateAlerts(config.alerts, errors, warnings);
-    warnAboutUnreadSignals(alerts, signalSources, warnings);
     const maintenance = {
         switch: config.maintenance?.switch === true,
         name: validateAccessoryName({
@@ -83,7 +83,7 @@ function validateConfig(raw) {
         status: 'ok',
         errors,
         warnings,
-        config: { routingKey: key, region, source, alerts, heldAlertIds, maintenance, signalSources, options },
+        config: { routingKey: key, region, source, alerts, heldAlertIds, maintenance, signalPlugins, options },
     };
 }
 function validateRoutingKey(value, errors, warnings) {
@@ -126,24 +126,105 @@ function validateSource(value, errors) {
     }
     return value;
 }
-function validateSources(value, warnings) {
+function isPlainObject(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+/**
+ * `signals`: one entry per plugin, keyed by `pluginConfigKey`.
+ *
+ * A bad entry is skipped with a warning and never fails the config. The
+ * settings screen for this section is built from other plugins' data, and
+ * nothing in it may stop the user's own alerts from working.
+ */
+function validateSignalPlugins(value, warnings) {
     if (value === undefined) {
         return [];
     }
-    if (!Array.isArray(value)) {
-        warnings.push('signals.sources is not a list; the signal store stays closed');
+    if (!isPlainObject(value)) {
+        warnings.push('signals is not an object; no plugin may page');
         return [];
     }
-    const sources = [];
-    for (const entry of value) {
-        if (!(0, schema_1.isAllowableSource)(entry)) {
-            warnings.push(`signals.sources entry ${(0, redact_1.forLog)(entry)} is not a usable package name; skipped`);
+    const plugins = [];
+    for (const [key, entry] of Object.entries(value)) {
+        const plugin = (0, schema_1.pluginFromConfigKey)(key);
+        if (plugin === undefined || !isPlainObject(entry)) {
+            warnings.push(`signals: ${(0, redact_1.forLog)(key)} is not a package name with settings; skipped`);
         }
-        else if (!sources.includes(entry)) {
-            sources.push(entry);
+        else if (plugins.some((existing) => existing.plugin === plugin)) {
+            warnings.push(`signals: ${plugin} appears twice; the second entry is skipped`);
+        }
+        else if (plugins.length >= settings_1.MAX_SIGNAL_PLUGINS) {
+            warnings.push(`signals: at most ${settings_1.MAX_SIGNAL_PLUGINS} plugins are read; ${plugin} skipped`);
+        }
+        else {
+            plugins.push(validateSignalPlugin(plugin, entry, warnings));
         }
     }
-    return sources;
+    return plugins;
+}
+function validateSignalPlugin(plugin, entry, warnings) {
+    const label = `signals.${(0, schema_1.pluginConfigKey)(plugin)}`;
+    if (entry.signals !== undefined && !isPlainObject(entry.signals)) {
+        warnings.push(`${label}.signals is not an object; its signals use the plugin's settings`);
+    }
+    const signals = [];
+    for (const [name, settings] of Object.entries(isPlainObject(entry.signals) ? entry.signals : {})) {
+        if (!(0, schema_1.isValidSignalName)(name) || !isPlainObject(settings)) {
+            warnings.push(`${label}: ${(0, redact_1.forLog)(name)} is not a signal name with settings; skipped`);
+        }
+        else if (signals.length >= settings_1.MAX_SIGNALS_PER_PLUGIN) {
+            warnings.push(`${label}: at most ${settings_1.MAX_SIGNALS_PER_PLUGIN} signals are read; ${name} skipped`);
+        }
+        else {
+            signals.push(validateSignalSettings({ plugin, signal: name }, settings, warnings));
+        }
+    }
+    return { plugin, allow: entry.allow === true, signals };
+}
+function validateSignalSettings(ref, settings, warnings) {
+    const label = `signals.${(0, schema_1.pluginConfigKey)(ref.plugin)}.signals.${ref.signal}`;
+    const summary = validateSummaryOverride(settings.summary, `${label}.summary`, warnings);
+    const severity = validateSeverityOverride(settings.severity, `${label}.severity`, warnings);
+    return {
+        ...ref,
+        enabled: settings.enabled !== false,
+        ...(summary === undefined ? {} : { summary }),
+        ...(severity === undefined ? {} : { severity }),
+        bypassMaintenance: settings.bypassMaintenance === true,
+        switch: settings.switch === true,
+        switchName: validateAccessoryName({
+            value: settings.switchName,
+            label: `${label}.switchName`,
+            fallback: (0, schema_1.defaultSignalSwitchName)(ref.signal),
+            warnings,
+        }),
+    };
+}
+/** Blank keeps the plugin's text. A bad value does too, with a warning. */
+function validateSummaryOverride(value, label, warnings) {
+    if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+        return undefined;
+    }
+    if (typeof value !== 'string') {
+        warnings.push(`${label} is not text; using the plugin's text`);
+        return undefined;
+    }
+    const problems = [];
+    const summary = validateText({ value, field: label, max: settings_1.MAX_SUMMARY_LENGTH, problems });
+    if (summary === undefined) {
+        warnings.push(`${problems.join('; ')}; using the plugin's text`);
+    }
+    return summary;
+}
+function validateSeverityOverride(value, label, warnings) {
+    if (value === undefined || value === settings_1.SEVERITY_FROM_PLUGIN || value === '') {
+        return undefined;
+    }
+    if ((0, types_1.isSeverity)(value)) {
+        return value;
+    }
+    warnings.push(`${label} ${(0, redact_1.forLog)(value)} is not a severity; using the plugin's`);
+    return undefined;
 }
 function validateAlerts(value, errors, warnings) {
     const alerts = [];
@@ -197,7 +278,6 @@ function validateAlert(entry, index, warnings) {
     const summary = validateText({ value: alert.summary, field: 'summary', max: settings_1.MAX_SUMMARY_LENGTH, problems });
     const levels = validateLevels(alert.levels, name ?? id, problems);
     const resolveAfterMinutes = validateMinutes(alert.resolveAfterMinutes, problems);
-    const signal = validateBinding(alert.signal, levels, problems);
     if (name === undefined || summary === undefined || levels === undefined || problems.length > 0) {
         warnings.push(`alert ${id} is held until fixed (nothing is sent or removed): ${problems.join('; ')}`);
         return { kind: 'held', id };
@@ -211,7 +291,6 @@ function validateAlert(entry, index, warnings) {
             levels,
             resolveAfterMinutes,
             bypassMaintenance: alert.bypassMaintenance === true,
-            ...(signal === undefined ? {} : { signal }),
         },
     };
 }
@@ -222,7 +301,7 @@ function validateText(input) {
         return undefined;
     }
     const text = value.trim();
-    if (CONTROL_CHARACTERS.test(text)) {
+    if (settings_1.CONTROL_CHARACTERS.test(text)) {
         problems.push(`${field} contains control characters`);
         return undefined;
     }
@@ -250,13 +329,13 @@ function validateAccessoryName(input) {
     }
     return name;
 }
-function validateLevels(value, alertName, problems) {
+/** Each level is a switch named with the alert's prefix and its severity, so the name always says which switch it is. */
+function validateLevels(value, prefix, problems) {
     if (!Array.isArray(value) || value.length === 0 || value.length > settings_1.MAX_LEVELS) {
         problems.push(`levels must list 1 to ${settings_1.MAX_LEVELS} entries`);
         return undefined;
     }
     const severities = [];
-    const names = [];
     for (const entry of value) {
         const level = (typeof entry === 'object' && entry !== null ? entry : {});
         if (!(0, types_1.isSeverity)(level.severity) || severities.includes(level.severity)) {
@@ -264,29 +343,17 @@ function validateLevels(value, alertName, problems) {
             return undefined;
         }
         severities.push(level.severity);
-        names.push(level.name === undefined
-            ? undefined
-            : validateText({ value: level.name, field: 'level name', max: settings_1.MAX_NAME_LENGTH, problems }));
     }
-    if (problems.length > 0) {
-        return undefined;
-    }
-    return severities.map((severity, index) => ({
-        severity,
-        name: names[index] ?? defaultLevelName(alertName, severity, severities.length),
-    }));
+    return severities.map((severity) => ({ severity, name: levelSwitchName(prefix, severity) }));
 }
-/** `Leak` for a single level, `Freezer Critical` otherwise, within HomeKit's budget. */
-function defaultLevelName(alertName, severity, levelCount) {
-    if (levelCount === 1) {
-        return alertName;
-    }
+/** `Leak Critical`, within HomeKit's budget. */
+function levelSwitchName(prefix, severity) {
     const suffix = `${severity[0]?.toUpperCase() ?? ''}${severity.slice(1)}`;
-    const combined = `${alertName} ${suffix}`;
+    const combined = `${prefix} ${suffix}`;
     if (combined.length <= settings_1.MAX_NAME_LENGTH) {
         return combined;
     }
-    return `${alertName.slice(0, settings_1.MAX_NAME_LENGTH - suffix.length - 2)}\u2026 ${suffix}`;
+    return `${prefix.slice(0, settings_1.MAX_NAME_LENGTH - suffix.length - 2)}\u2026 ${suffix}`;
 }
 function validateMinutes(value, problems) {
     if (value === undefined) {
@@ -297,28 +364,6 @@ function validateMinutes(value, problems) {
         return 0;
     }
     return value;
-}
-function validateBinding(value, levels, problems) {
-    if (value === undefined || value === '') {
-        return undefined;
-    }
-    const ref = (0, schema_1.parseSignalRef)(value);
-    if (ref === undefined) {
-        problems.push('signal must be <package>/<signal>');
-        return undefined;
-    }
-    if (levels !== undefined && levels.length !== 1) {
-        problems.push('an alert bound to a signal must have exactly one level');
-    }
-    return ref;
-}
-function warnAboutUnreadSignals(alerts, sources, warnings) {
-    for (const alert of alerts) {
-        if (alert.signal !== undefined && !sources.includes(alert.signal.plugin)) {
-            warnings.push(`alert ${alert.id} is bound to ${alert.signal.plugin}, which is not in signals.sources; `
-                + 'its row is never read');
-        }
-    }
 }
 function validateOptions(value, warnings) {
     return {
@@ -387,6 +432,7 @@ function resolveAccessories(config, warnings) {
             accessories.push({ kind: 'alert', name: level.name, alertId: alert.id, severity: level.severity });
         }
     }
+    accessories.push(...resolveSignalSwitches(config, warnings));
     if (config.maintenance.switch) {
         accessories.push({ kind: 'maintenance', name: config.maintenance.name });
     }
@@ -403,4 +449,18 @@ function resolveAccessories(config, warnings) {
         }
     }
     return accessories;
+}
+/** A switch for each signal that asks for one, from allowed plugins only, up to the cap. */
+function resolveSignalSwitches(config, warnings) {
+    const skipped = (0, config_1.requestedSignalSwitches)(config).slice(settings_1.MAX_SIGNAL_SWITCHES);
+    if (skipped.length > 0) {
+        const names = skipped.slice(0, MAX_LISTED_SKIPPED_SWITCHES).map(schema_1.signalRefKey).join(', ');
+        const rest = skipped.length - MAX_LISTED_SKIPPED_SWITCHES;
+        warnings?.push(`at most ${settings_1.MAX_SIGNAL_SWITCHES} signal switches are created; skipped ${names}${rest > 0 ? ` and ${rest} more` : ''}`);
+    }
+    return (0, config_1.signalSwitches)(config).map((signal) => ({
+        kind: 'signal',
+        name: signal.switchName,
+        signal: { plugin: signal.plugin, signal: signal.signal },
+    }));
 }

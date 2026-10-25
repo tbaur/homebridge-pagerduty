@@ -39,7 +39,7 @@ afterEach(() => {
 })
 
 function reader(options: Partial<ConstructorParameters<typeof SignalReader>[0]> = {}): SignalReader {
-  const created = new SignalReader({ path, sources: ['homebridge-example'], log: fakeLogger(), ...options })
+  const created = new SignalReader({ path, allowed: ['homebridge-example'], log: fakeLogger(), ...options })
   readers.push(created)
   return created
 }
@@ -78,19 +78,20 @@ describe('SignalReader', () => {
     const subject = reader()
     subject.create()
 
-    expect(rowsOf(subject.poll())).toEqual({ kind: 'rows', rows: [], complete: true, foreignWriters: [], invalidRows: 0 })
+    expect(rowsOf(subject.poll())).toEqual({ kind: 'rows', rows: [], complete: true, catalog: [], invalidRows: 0 })
     if (process.platform !== 'win32') {
       expect(statSync(path).mode & 0o777).toBe(0o600)
     }
   })
 
-  it('creates a missing parent directory owner-only', () => {
-    const nested = join(dir, 'homebridge-pagerduty', 'signals.sqlite')
+  it('creates the missing data and interface directories owner-only', () => {
+    const nested = join(dir, 'homebridge-pagerduty', 'signals-2026-10-24', 'signals.sqlite')
     reader({ path: nested }).create()
 
     expect(statSync(nested).isFile()).toBe(true)
     if (process.platform !== 'win32') {
       expect(statSync(join(dir, 'homebridge-pagerduty')).mode & 0o777).toBe(0o700)
+      expect(statSync(join(dir, 'homebridge-pagerduty', 'signals-2026-10-24')).mode & 0o777).toBe(0o700)
     }
   })
 
@@ -121,15 +122,33 @@ describe('SignalReader', () => {
     expect(rowsOf(subject.poll()).rows.map((row) => row.signal)).toEqual(['sump-high'])
   })
 
-  it('applies the allowlist in the query and names other writers', () => {
+  it('applies the allowlist in the query, and lists every plugin\'s signals except its own', () => {
     const subject = reader()
     subject.create()
-    write([{ signal: 'door', active: 1 }, { plugin: 'homebridge-other', signal: 'x', active: 1 }])
+    write([
+      { signal: 'door', active: 1 },
+      { plugin: 'homebridge-other', signal: 'x', active: 0, summary: 'Other text' },
+      { plugin: 'homebridge-pagerduty', signal: 'self', active: 1 },
+    ])
 
     const result = rowsOf(subject.poll())
 
     expect(result.rows.map((row) => row.plugin)).toEqual(['homebridge-example'])
-    expect(result.foreignWriters).toEqual(['homebridge-other'])
+    expect(result.catalog).toEqual([
+      { plugin: 'homebridge-example', signal: 'door', summary: 'Door open' },
+      { plugin: 'homebridge-other', signal: 'x', summary: 'Other text' },
+    ])
+  })
+
+  it('reads only the list of signals when no plugin is allowed', () => {
+    const subject = reader({ allowed: [] })
+    write([{ signal: 'door', active: 1 }])
+
+    const result = rowsOf(subject.poll())
+
+    expect(result.rows).toEqual([])
+    expect(result.complete).toBe(true)
+    expect(result.catalog).toEqual([{ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' }])
   })
 
   it('reopens when the file is replaced, instead of reading the deleted one', () => {
@@ -145,6 +164,39 @@ describe('SignalReader', () => {
     write([{ signal: 'new', active: 1 }])
 
     expect(rowsOf(subject.poll()).rows.map((row) => row.signal)).toEqual(['new'])
+  })
+
+  it('says a read of exactly the cap is complete', () => {
+    const subject = reader()
+    subject.create()
+    write(Array.from({ length: 1_000 }, (_unused, index) => ({ signal: `s${index}`, active: 1 as const, at: index })))
+
+    const result = rowsOf(subject.poll())
+
+    expect(result.rows).toHaveLength(1_000)
+    expect(result.complete).toBe(true)
+  })
+
+  it('fills the list of signals with valid rows, so rows that fail validation cannot crowd real plugins out', () => {
+    const subject = reader({ allowed: [] })
+    write([
+      ...Array.from({ length: 1_000 }, (_unused, index) => ({ plugin: '@@@', signal: `s${index}`, active: 0 as const })),
+      { signal: 'door', active: 1 },
+    ])
+
+    expect(rowsOf(subject.poll()).catalog).toEqual([{ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' }])
+  })
+
+  it('replaces control characters in a row\'s text with a space, so the row still pages', () => {
+    const subject = reader()
+    subject.create()
+    write([{ signal: 'door', active: 1, summary: 'Line one\r\nLine two\u0007' }])
+
+    const result = rowsOf(subject.poll())
+
+    expect(result.rows.map((row) => row.summary)).toEqual(['Line one Line two '])
+    expect(result.invalidRows).toBe(0)
+    expect(result.catalog.map((entry) => entry.summary)).toEqual(['Line one Line two '])
   })
 
   it('says the read was incomplete when it hit the cap', () => {
@@ -172,32 +224,13 @@ describe('SignalReader', () => {
     expect(result.invalidRows).toBe(1)
   })
 
-  it('warns once about a store from a newer interface version, across reopens', () => {
-    const log = fakeLogger()
-    const stampNewer = (): void => {
-      const db: DatabaseSync = new sqlite.DatabaseSync(path)
-      db.exec('PRAGMA user_version = 9')
-      db.close()
-    }
-    stampNewer()
-    const subject = reader({ log })
-    subject.create()
-    unlinkSync(path)
-    stampNewer()
-    subject.poll()
-
-    expect(log.lines('warn')).toEqual([
-      'signal store is interface version 9; this plugin reads version 1. Update homebridge-pagerduty',
-    ])
-  })
-
-  it('writes version 1 into a store it creates', () => {
+  it('leaves PRAGMA user_version alone, because the directory names the interface', () => {
     reader().create()
-    const db = new sqlite.DatabaseSync(path)
+    const db: DatabaseSync = new sqlite.DatabaseSync(path)
     const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
     db.close()
 
-    expect(version).toBe(1)
+    expect(version).toBe(0)
   })
 
   it('tightens a store that other users can read', () => {

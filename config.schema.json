@@ -2,6 +2,7 @@
   "pluginAlias": "PagerDuty",
   "pluginType": "platform",
   "singular": true,
+  "dynamicSchemaVersion": 1,
   "headerDisplay": "Each alert becomes a HomeKit switch. Turn it on and PagerDuty pages someone. Turn it off and the alert resolves. Use HomeKit automations to turn the switches on, for example: when the leak sensor detects water, turn on Leak.",
   "footerDisplay": "The integration key is stored in the Homebridge configuration file, like every Homebridge credential, and is never written to the log. The [documentation](https://github.com/tbaur/homebridge-pagerduty#readme) explains each setting.",
   "schema": {
@@ -47,7 +48,7 @@
         "description": "Shown on each alert in PagerDuty. If two Homebridge installs share one integration key, give each a different source. Resolve open alerts before you change it."
       },
       "alerts": {
-        "title": "Alerts",
+        "title": "HomeKit Alerts",
         "type": "array",
         "maxItems": 30,
         "items": {
@@ -72,31 +73,31 @@
               "description": "A short, permanent ID, such as leak. If you change it, HomeKit replaces the switch and loses its room and automations."
             },
             "name": {
-              "title": "HomeKit Name",
+              "title": "Accessory Prefix",
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
               "examples": [
                 "Leak"
               ],
-              "description": "The switch name in the Home app. Safe to rename."
+              "description": "Each severity below adds a HomeKit switch named with this prefix and the severity, such as Leak Critical. It also labels this alert in the Homebridge log. Safe to rename."
             },
             "summary": {
-              "title": "PagerDuty Title",
+              "title": "PagerDuty Message",
               "type": "string",
               "minLength": 1,
               "maxLength": 1024,
               "examples": [
                 "Water leak detected"
               ],
-              "description": "What the person who is paged reads first."
+              "description": "Sent to PagerDuty when any of this alert's switches turns on, with that switch's severity."
             },
             "levels": {
               "title": "Severity",
               "type": "array",
               "minItems": 1,
               "maxItems": 4,
-              "description": "Most alerts need one level. Add another only when the same problem can be more or less urgent. Each level is its own switch.",
+              "description": "Most alerts need one severity. Add another only when the same problem can be more or less urgent, such as Leak Warning and Leak Critical.",
               "items": {
                 "type": "object",
                 "title": "Level",
@@ -114,12 +115,6 @@
                       "critical"
                     ],
                     "description": "Use a different severity for each level."
-                  },
-                  "name": {
-                    "title": "Switch Name",
-                    "type": "string",
-                    "maxLength": 64,
-                    "description": "Optional. Defaults to the HomeKit name."
                   }
                 }
               }
@@ -129,22 +124,12 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 10080,
-              "description": "Optional. Turns the switch off, which resolves the alert, this many minutes after it turns on."
+              "description": "Optional. Turns off every switch of this alert, which resolves it, this many minutes after the last time any of them turned on."
             },
             "bypassMaintenance": {
               "title": "Page During Maintenance",
               "type": "boolean",
               "description": "Page even while the maintenance switch is on. Use it for alerts that must never wait."
-            },
-            "signal": {
-              "title": "Follow Signal",
-              "type": "string",
-              "maxLength": 193,
-              "pattern": "^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*/[a-z0-9._-]{1,64}$",
-              "examples": [
-                "homebridge-example/sump-high"
-              ],
-              "description": "Optional. Lets another plugin turn this switch on and off. Enter the plugin's package name and one of its signal names, with a slash between them. The plugin's documentation lists its signals, and the Homebridge log lists them at startup. Use with an alert that has one level."
             }
           }
         }
@@ -177,23 +162,9 @@
         }
       },
       "signals": {
-        "title": "Other Plugins",
+        "title": "Plugin Signals",
         "type": "object",
-        "properties": {
-          "sources": {
-            "title": "Signal Sources",
-            "type": "array",
-            "description": "The npm package name of each plugin.",
-            "items": {
-              "type": "string",
-              "maxLength": 128,
-              "pattern": "^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$",
-              "examples": [
-                "homebridge-example"
-              ]
-            }
-          }
-        }
+        "properties": {}
       },
       "options": {
         "title": "Options",
@@ -264,7 +235,8 @@
     },
     {
       "type": "fieldset",
-      "title": "Alerts",
+      "title": "HomeKit Alerts",
+      "htmlClass": "border-top pt-3 mt-3",
       "expandable": false,
       "description": "One alert for each thing that should page someone, such as a water leak or a smoke alarm.",
       "items": [
@@ -288,32 +260,25 @@
                   "buttonText": "Add Level",
                   "items": [
                     {
-                      "type": "flex",
-                      "flex-flow": "row wrap",
-                      "items": [
+                      "key": "alerts[].levels[].severity",
+                      "type": "select",
+                      "titleMap": [
                         {
-                          "key": "alerts[].levels[].severity",
-                          "type": "select",
-                          "titleMap": [
-                            {
-                              "value": "critical",
-                              "name": "Critical"
-                            },
-                            {
-                              "value": "error",
-                              "name": "Error"
-                            },
-                            {
-                              "value": "warning",
-                              "name": "Warning"
-                            },
-                            {
-                              "value": "info",
-                              "name": "Info"
-                            }
-                          ]
+                          "value": "critical",
+                          "name": "Critical"
                         },
-                        "alerts[].levels[].name"
+                        {
+                          "value": "error",
+                          "name": "Error"
+                        },
+                        {
+                          "value": "warning",
+                          "name": "Warning"
+                        },
+                        {
+                          "value": "info",
+                          "name": "Info"
+                        }
                       ]
                     }
                   ]
@@ -327,13 +292,6 @@
                   "condition": {
                     "functionBody": "return model.maintenance?.switch === true;"
                   }
-                },
-                {
-                  "key": "alerts[].signal",
-                  "placeholder": "homebridge-example/sump-high",
-                  "condition": {
-                    "functionBody": "return (model.signals?.sources ?? []).length > 0;"
-                  }
                 }
               ]
             }
@@ -345,6 +303,7 @@
     {
       "type": "fieldset",
       "title": "Maintenance",
+      "htmlClass": "border-top pt-3 mt-3",
       "expandable": true,
       "expanded": false,
       "description": "A switch that holds new alerts while you work on the house.",
@@ -367,24 +326,17 @@
     },
     {
       "type": "fieldset",
-      "title": "Other Plugins",
+      "title": "Plugin Signals",
+      "htmlClass": "border-top pt-3 mt-3",
       "expandable": true,
       "expanded": false,
-      "description": "Let another plugin page through this one, if its documentation says it supports homebridge-pagerduty.",
-      "items": [
-        {
-          "key": "signals.sources",
-          "type": "array",
-          "buttonText": "Add Plugin",
-          "items": [
-            "signals.sources[]"
-          ]
-        }
-      ]
+      "description": "Signals from other plugins that support homebridge-pagerduty. Each plugin appears here after it and this plugin have both started.",
+      "items": []
     },
     {
       "type": "fieldset",
       "title": "Advanced",
+      "htmlClass": "border-top pt-3 mt-3",
       "expandable": true,
       "expanded": false,
       "items": [

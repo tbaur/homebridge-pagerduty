@@ -27,3 +27,4 @@ __exportStar(require("./base-accessory"), exports);
 __exportStar(require("./delivery-sensor"), exports);
 __exportStar(require("./host"), exports);
 __exportStar(require("./maintenance-switch"), exports);
+__exportStar(require("./signal-switch"), exports);

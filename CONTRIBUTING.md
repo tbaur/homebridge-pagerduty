@@ -86,7 +86,7 @@ See [RELEASING.md](RELEASING.md#version-bumps) for the full table.
 Read the invariants in [DEVELOPMENT.md](DEVELOPMENT.md#invariants) first. Three things are worth knowing before you start:
 
 - **This pages people.** A bug here either wakes someone for nothing or fails to wake them when it matters. Changes to what is sent belong in `src/state/desired.ts` or `src/state/reconcile.ts`, which are pure and tested table-driven.
-- **The signal schema is a published interface.** Other plugins run that exact text, copied from `docs/SIGNALS.md`, `docs/SIGNALS-AGENT.md` or `scripts/reference-writer.js`. Changing it means a new interface version, and a PR that does so needs to say why.
+- **The signal schema is a published interface.** Other plugins run that exact text, copied from `docs/SIGNALS.md`, `docs/SIGNALS-AGENT.md` or `scripts/reference-writer.js`. Changing it in a way that breaks a writer means a new interface identifier, and a PR that does so needs to say why. See [Signal store interface](DEVELOPMENT.md#signal-store-interface).
 - **Do not break someone's tiles.** Accessory identity is alert id plus severity. A change that alters the identity of an existing accessory removes it, with its room and automations. If it must, say so explicitly in the PR so it is handled as a migration.
 
 ## Reporting Bugs

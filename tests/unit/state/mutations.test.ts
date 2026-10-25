@@ -7,7 +7,7 @@
  * Every change to persisted state, called directly with an explicit time.
  */
 
-import { emptyState } from '../../../src/state/model'
+import { emptyState, isSignalSwitchOn } from '../../../src/state/model'
 import {
   applyKeyChange,
   applyLevelWrite,
@@ -15,8 +15,9 @@ import {
   applyRows,
   expireResolveTimers,
   isAnyLevelOn,
+  applySignalSwitchWrite,
   nextDeadline,
-  pruneRows,
+  pruneSignals,
 } from '../../../src/state/mutations'
 import type { ResolvedAlert, SignalRow } from '../../../src/types'
 import { alert, leveledAlert } from '../../helpers/config'
@@ -117,7 +118,8 @@ describe('nextDeadline', () => {
 })
 
 describe('applyRows', () => {
-  const SOURCES = ['homebridge-example']
+  const ALLOWED = ['homebridge-example']
+  const NO_SWITCHES = new Set<string>()
 
   function row(overrides: Partial<SignalRow> = {}): SignalRow {
     return {
@@ -134,25 +136,33 @@ describe('applyRows', () => {
   it('records a new row as a change, timed by updated_at', () => {
     const state = emptyState()
 
-    const result = applyRows(state, { rows: [row()], complete: true, sources: SOURCES, boundAlerts: new Map(), now: 1_000 })
+    const result = applyRows(state, { rows: [row()], complete: true, allowed: ALLOWED, switches: NO_SWITCHES, now: 1_000 })
 
     expect(result).toEqual({ changed: ['homebridge-example/door'], dirty: true })
     expect(state.rowsSeen['homebridge-example/door']).toEqual({ active: true, severity: 'warning', summary: 'Door open', changedAt: 100 })
   })
 
+  it('ignores a row from a plugin that is not allowed, even if the read returned one', () => {
+    const state = emptyState()
+
+    expect(applyRows(state, { rows: [row({ plugin: 'homebridge-other' })], complete: true, allowed: ALLOWED, switches: NO_SWITCHES, now: 1_000 }))
+      .toEqual({ changed: [], dirty: false })
+    expect(state.rowsSeen).toEqual({})
+  })
+
   it('uses the clock instead of an updated_at from the future', () => {
     const state = emptyState()
 
-    applyRows(state, { rows: [row({ updatedAt: 5_000 })], complete: true, sources: SOURCES, boundAlerts: new Map(), now: 1_000 })
+    applyRows(state, { rows: [row({ updatedAt: 5_000 })], complete: true, allowed: ALLOWED, switches: NO_SWITCHES, now: 1_000 })
 
     expect(state.rowsSeen['homebridge-example/door']!.changedAt).toBe(1_000)
   })
 
   it('treats a summary-only change as dirty but not as a change', () => {
     const state = emptyState()
-    applyRows(state, { rows: [row()], complete: true, sources: SOURCES, boundAlerts: new Map(), now: 1_000 })
+    applyRows(state, { rows: [row()], complete: true, allowed: ALLOWED, switches: NO_SWITCHES, now: 1_000 })
 
-    const result = applyRows(state, { rows: [row({ summary: 'Still open', updatedAt: 200 })], complete: true, sources: SOURCES, boundAlerts: new Map(), now: 2_000 })
+    const result = applyRows(state, { rows: [row({ summary: 'Still open', updatedAt: 200 })], complete: true, allowed: ALLOWED, switches: NO_SWITCHES, now: 2_000 })
 
     expect(result).toEqual({ changed: [], dirty: true })
     expect(state.rowsSeen['homebridge-example/door']!.summary).toBe('Still open')
@@ -160,46 +170,93 @@ describe('applyRows', () => {
 
   it('treats an updated_at change alone as nothing', () => {
     const state = emptyState()
-    applyRows(state, { rows: [row()], complete: true, sources: SOURCES, boundAlerts: new Map(), now: 1_000 })
+    applyRows(state, { rows: [row()], complete: true, allowed: ALLOWED, switches: NO_SWITCHES, now: 1_000 })
 
-    expect(applyRows(state, { rows: [row({ updatedAt: 900 })], complete: true, sources: SOURCES, boundAlerts: new Map(), now: 2_000 }))
+    expect(applyRows(state, { rows: [row({ updatedAt: 900 })], complete: true, allowed: ALLOWED, switches: NO_SWITCHES, now: 2_000 }))
       .toEqual({ changed: [], dirty: false })
   })
 
   it('clears a row that has gone, but only after a complete read', () => {
     const state = emptyState()
-    applyRows(state, { rows: [row()], complete: true, sources: SOURCES, boundAlerts: new Map(), now: 1_000 })
+    applyRows(state, { rows: [row()], complete: true, allowed: ALLOWED, switches: NO_SWITCHES, now: 1_000 })
 
-    expect(applyRows(state, { rows: [], complete: false, sources: SOURCES, boundAlerts: new Map(), now: 2_000 }).changed).toEqual([])
+    expect(applyRows(state, { rows: [], complete: false, allowed: ALLOWED, switches: NO_SWITCHES, now: 2_000 }).changed).toEqual([])
     expect(state.rowsSeen['homebridge-example/door']!.active).toBe(true)
 
-    expect(applyRows(state, { rows: [], complete: true, sources: SOURCES, boundAlerts: new Map(), now: 3_000 }).changed)
+    expect(applyRows(state, { rows: [], complete: true, allowed: ALLOWED, switches: NO_SWITCHES, now: 3_000 }).changed)
       .toEqual(['homebridge-example/door'])
     expect(state.rowsSeen['homebridge-example/door']).toEqual(expect.objectContaining({ active: false, changedAt: 3_000 }))
   })
 
-  it('drives the switch of a bound alert, in both directions', () => {
-    const bound = alert({ id: 'door', levels: [{ severity: 'error', name: 'Door' }] })
-    const boundAlerts = new Map([['homebridge-example/door', bound]])
+  it('sets a signal switch from the row, in both directions, and leaves signals without one alone', () => {
+    const switches = new Set(['homebridge-example/door'])
     const state = emptyState()
 
-    applyRows(state, { rows: [row()], complete: true, sources: SOURCES, boundAlerts, now: 1_000 })
-    expect(state.levels['door:error']!.on).toBe(true)
+    applyRows(state, { rows: [row(), row({ signal: 'window' })], complete: true, allowed: ALLOWED, switches, now: 1_000 })
+    expect(state.switches).toEqual({ 'homebridge-example/door': { on: true, changedAt: 100 } })
 
-    applyRows(state, { rows: [], complete: true, sources: SOURCES, boundAlerts, now: 2_000 })
-    expect(state.levels['door:error']!.on).toBe(false)
+    applyRows(state, { rows: [], complete: true, allowed: ALLOWED, switches, now: 2_000 })
+    expect(state.switches['homebridge-example/door']).toEqual({ on: false, changedAt: 2_000 })
+  })
+
+  it('lets a row change override a switch a person set', () => {
+    const switches = new Set(['homebridge-example/door'])
+    const state = emptyState()
+    applyRows(state, { rows: [row()], complete: true, allowed: ALLOWED, switches, now: 1_000 })
+    applySignalSwitchWrite(state, 'homebridge-example/door', { on: false, at: 1_500 })
+
+    applyRows(state, { rows: [row({ severity: 'critical', updatedAt: 1_800 })], complete: true, allowed: ALLOWED, switches, now: 2_000 })
+
+    expect(isSignalSwitchOn(state, 'homebridge-example/door')).toBe(true)
+  })
+
+  it('keeps a person\'s later switch write when an older row change is read after it', () => {
+    const switches = new Set(['homebridge-example/door'])
+    const state = emptyState()
+    applyRows(state, { rows: [row()], complete: true, allowed: ALLOWED, switches, now: 1_000 })
+    applySignalSwitchWrite(state, 'homebridge-example/door', { on: false, at: 1_500 })
+
+    const result = applyRows(state, { rows: [row({ severity: 'critical', updatedAt: 1_200 })], complete: true, allowed: ALLOWED, switches, now: 2_000 })
+
+    expect(result.changed).toEqual(['homebridge-example/door'])
+    expect(state.rowsSeen['homebridge-example/door']!.severity).toBe('critical')
+    expect(state.switches['homebridge-example/door']).toEqual({ on: false, changedAt: 1_500 })
   })
 })
 
-describe('pruneRows', () => {
-  it('forgets rows from packages removed from the allowlist', () => {
+describe('applySignalSwitchWrite', () => {
+  it('follows the row until a person sets it, and reports only real changes', () => {
+    const state = emptyState()
+    state.rowsSeen['homebridge-example/door'] = { active: true, severity: 'info', summary: 'x', changedAt: 1 }
+
+    expect(isSignalSwitchOn(state, 'homebridge-example/door')).toBe(true)
+    expect(applySignalSwitchWrite(state, 'homebridge-example/door', { on: true, at: 5 })).toBe(false)
+    expect(applySignalSwitchWrite(state, 'homebridge-example/door', { on: false, at: 6 })).toBe(true)
+    expect(state.switches['homebridge-example/door']).toEqual({ on: false, changedAt: 6 })
+    expect(isSignalSwitchOn(state, 'homebridge-example/door')).toBe(false)
+  })
+
+  it('turns on a switch for a signal that has never been written', () => {
+    const state = emptyState()
+
+    expect(applySignalSwitchWrite(state, 'homebridge-example/door', { on: true, at: 5 })).toBe(true)
+    expect(isSignalSwitchOn(state, 'homebridge-example/door')).toBe(true)
+  })
+})
+
+describe('pruneSignals', () => {
+  it('forgets rows from plugins that are no longer allowed, and switches that were removed', () => {
     const state = emptyState()
     state.rowsSeen['homebridge-gone/door'] = { active: true, severity: 'info', summary: 'x', changedAt: 1 }
     state.rowsSeen['homebridge-example/door'] = { active: true, severity: 'info', summary: 'x', changedAt: 1 }
+    state.switches['homebridge-example/door'] = { on: true, changedAt: 1 }
+    state.switches['homebridge-example/window'] = { on: true, changedAt: 1 }
+    const keep = { allowed: ['homebridge-example'], switches: new Set(['homebridge-example/door']) }
 
-    expect(pruneRows(state, ['homebridge-example'])).toBe(true)
+    expect(pruneSignals(state, keep)).toBe(true)
     expect(Object.keys(state.rowsSeen)).toEqual(['homebridge-example/door'])
-    expect(pruneRows(state, ['homebridge-example'])).toBe(false)
+    expect(Object.keys(state.switches)).toEqual(['homebridge-example/door'])
+    expect(pruneSignals(state, keep)).toBe(false)
   })
 })
 

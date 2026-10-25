@@ -9,8 +9,8 @@ The examples use `homebridge-example`. Use the plugin's real package name from i
 - homebridge-pagerduty reads a SQLite file in the Homebridge storage directory. Other plugins write rows to it.
 - Each row is one condition that a person should know about, called a signal, such as `sump-high`.
 - While a row has `active = 1`, homebridge-pagerduty keeps a PagerDuty alert open for it. When the row changes to `active = 0`, it resolves the alert.
-- homebridge-pagerduty ignores every row until the user adds the writing plugin's package name to its `signals.sources` setting (**Signal Sources**, under **Other Plugins** in its settings screen). The writing plugin cannot change that setting, and must not try.
-- A user can also tie one of their configured alerts to a signal with `"signal": "homebridge-example/sump-high"`. The alert's HomeKit switch then follows the row.
+- Once the plugin has written a row, it appears with its signals under **Plugin Signals** in homebridge-pagerduty's settings screen, after the next restart. homebridge-pagerduty ignores every row until the user checks **Allow this plugin to page** there. The writing plugin cannot change that setting, and must not try.
+- For each signal, the user can change the PagerDuty message and severity, let it page during maintenance, mute it, or give it a HomeKit switch. The writing plugin does not need to do anything for that.
 - homebridge-pagerduty checks the file every 2 seconds. Only a change to `active` or `severity` sends anything to PagerDuty.
 
 ## Do not
@@ -27,19 +27,23 @@ The examples use `homebridge-example`. Use the plugin's real package name from i
 
 ## Steps
 
+If the plugin already writes signals, this is an update. Replace its copy of the module with the one in [Module to copy](#module-to-copy), and replace its setting description and README section with the ones below. Remove any test that reads or sets `PRAGMA user_version`, and add any test from [Tests](#tests) that it does not have yet. Keep the signal names as they are. Then go through [Done when](#done-when).
+
 1. **Read the plugin.** Find its package name, its language and module format, its `engines.node` range, where it learns that a condition started or ended, its `config.schema.json`, its tests and its README.
 2. **Choose the signals.** Report only conditions that need a person, such as a leak, a device that went offline, or a failed backup. For each one, choose:
    - a name: lowercase letters, digits, dot, underscore and hyphen, up to 64 characters, such as `hub-offline`;
    - a severity: `info`, `warning`, `error` or `critical`;
-   - a summary that a person on call understands without context, such as `Sump water level is high`. 1 to 1024 characters.
+   - a summary that a person on call understands without context, such as `Sump water level is high`. 1 to 1024 characters, on one line.
 
-   Signal names become a public interface once released, because users type them into their config. Do not rename them later.
+   Signal names become a public interface once released, because each user's settings for a signal are saved under its name. Do not rename them later.
+
+   The summary is also the starting value of the user's PagerDuty Message setting for that signal, and saving the settings screen keeps it as fixed text. Write a summary that still reads well as a fixed message. If it includes changing detail, homebridge-pagerduty sends the current text as a detail field when the user's message differs.
 3. **Add a setting,** off by default, and make sure the settings screen shows it. See [Setting](#setting).
 4. **Add the module** from [Module to copy](#module-to-copy) as one file, for example `src/pagerduty-signals.ts`. Copy it unchanged. For a JavaScript plugin, remove the type annotations, the `import type` line and the `export type` and `export interface` declarations.
 5. **Connect it to the plugin.** See [Wiring](#wiring).
 6. **Add tests.** See [Tests](#tests).
 7. **Document it.** Add the section from [README section](#readme-section) to the plugin's README.
-8. **Check it end to end,** if a test Homebridge with homebridge-pagerduty is available. Set homebridge-pagerduty's `options.dryRun` to `true`, so that it logs each event it would send and pages no one. Add `homebridge-example` to its `signals.sources`. Then trigger a condition and look for the event in the Homebridge log. After a restart, homebridge-pagerduty's startup log also lists the signals it found, in a line such as `Signals from homebridge-example: hub-offline, sump-high`.
+8. **Check it end to end,** if a test Homebridge with homebridge-pagerduty is available. Set homebridge-pagerduty's `options.dryRun` to `true`, so that it logs each event it would send and pages no one. Write the signals once and restart Homebridge, then check **Allow this plugin to page** for `homebridge-example` under **Plugin Signals**, save and restart. Then trigger a condition and look for the event in the Homebridge log. After a restart, homebridge-pagerduty's startup log also lists the signals it found, in a line such as `Signals from homebridge-example: hub-offline, sump-high`.
 
 ## Specification
 
@@ -48,10 +52,12 @@ The module below implements all of this. This section is here so that you can ch
 ### File
 
 ```text
-<storage>/homebridge-pagerduty/signals.sqlite
+<storage>/homebridge-pagerduty/signals-2026-10-24/signals.sqlite
 ```
 
-`<storage>` is `api.user.storagePath()`. Create the directory with mode `0700` and the file with mode `0600` before SQLite opens it. Keep the store on a local disk: SQLite's WAL mode does not work on network filesystems.
+`<storage>` is `api.user.storagePath()`. Create both directories with mode `0700` and the file with mode `0600` before SQLite opens it. Keep the store on a local disk: SQLite's WAL mode does not work on network filesystems.
+
+`signals-2026-10-24` is the interface identifier. It names this table definition and these rules, and it is not homebridge-pagerduty's version. It changes only for a change that would break a writer, and homebridge-pagerduty keeps reading an identifier until at least its next major version. Use the identifier from this file. Do not look for other directories, and do not write to more than one.
 
 ### Table definition
 
@@ -76,15 +82,14 @@ CREATE TABLE IF NOT EXISTS signals (
 | `signal` | The condition's name. |
 | `active` | `1` while the condition is present, `0` once it has cleared. |
 | `severity` | `info`, `warning`, `error` or `critical`. |
-| `summary` | The alert title in PagerDuty. |
+| `summary` | The alert title in PagerDuty, on one line. |
 | `updated_at` | The time of the write, in Unix milliseconds. |
 
 ### Opening the store
 
 1. Create the directory and the file, owner-only.
 2. Open the file read-write, and set `PRAGMA busy_timeout` to 1000 ms or less. `node:sqlite` is synchronous, so a long wait blocks the whole bridge process.
-3. Run the table definition.
-4. Read `PRAGMA user_version`. If it is `0`, set it to `1`. If it is higher than `1`, do not write: the store belongs to a newer interface.
+3. Run the table definition. Do not read or set `PRAGMA user_version`: the directory names the interface.
 
 Open the store once and keep the connection.
 
@@ -121,12 +126,15 @@ export interface PagerDutySignalsOptions {
 }
 
 const STORE_DIR = 'homebridge-pagerduty'
+// The signal store interface this module writes. Change it only by copying a
+// newer version of this module from homebridge-pagerduty's docs/SIGNALS-AGENT.md.
+const INTERFACE_ID = 'signals-2026-10-24'
 const STORE_FILE = 'signals.sqlite'
-const INTERFACE_VERSION = 1
 const MAX_SUMMARY_LENGTH = 1024
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]+/g
 
-// The homebridge-pagerduty signal store interface, version 1. Every writer
-// must run this exact text: the first process to run it defines the table.
+// The table definition of interface signals-2026-10-24. Every writer must run
+// this exact text: the first process to run it defines the table.
 const SCHEMA = `PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS signals (
   plugin     TEXT    NOT NULL CHECK (length(plugin) BETWEEN 1 AND 128 AND plugin NOT GLOB '*[^a-z0-9@/._-]*'),
@@ -159,7 +167,7 @@ export class PagerDutySignals {
 
   /** Record a signal's current state. Skipped when nothing changed since the last write. */
   write(signal: string, state: SignalState): void {
-    const summary = state.summary.slice(0, MAX_SUMMARY_LENGTH)
+    const summary = state.summary.replace(CONTROL_CHARACTERS, ' ').slice(0, MAX_SUMMARY_LENGTH)
     const fingerprint = `${state.active ? 1 : 0}|${state.severity}|${summary}`
     if (this.isDisabled || this.lastWritten.get(signal) === fingerprint) {
       return
@@ -189,7 +197,7 @@ export class PagerDutySignals {
     if (sqlite === undefined) {
       this.disable('PagerDuty signals need Node 22.13 or later; not writing signals')
     }
-    const dir = join(this.options.storagePath, STORE_DIR)
+    const dir = join(this.options.storagePath, STORE_DIR, INTERFACE_ID)
     const file = join(dir, STORE_FILE)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     closeSync(openSync(file, 'a', 0o600))
@@ -197,12 +205,6 @@ export class PagerDutySignals {
     try {
       db.exec('PRAGMA busy_timeout = 1000')
       db.exec(SCHEMA)
-      const version = Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
-      if (version === 0) {
-        db.exec(`PRAGMA user_version = ${INTERFACE_VERSION}`)
-      } else if (version > INTERFACE_VERSION) {
-        this.disable(`the PagerDuty signal store is a newer version (${version}); update this plugin to write signals`)
-      }
     } catch (error) {
       db.close()
       throw error
@@ -232,8 +234,8 @@ What the module handles for you:
 - **It opens the store on the first write,** so a plugin with the setting off never creates the file.
 - **It skips a write when nothing changed** since the last write of that signal. Call `write` freely, for example on every device update.
 - **It never throws.** A failed write logs one `warn` and is tried again at the next change.
-- **It turns itself off,** with one `warn`, on a Node version without `node:sqlite`, or when the store belongs to a newer interface.
-- **It caps the summary** at 1024 characters.
+- **It turns itself off,** with one `warn`, on a Node version without `node:sqlite`.
+- **It cleans the summary.** Control characters such as newlines become spaces, and the summary is capped at 1024 characters.
 
 In TypeScript, the `node:sqlite` types come from `@types/node` 22.13 or later. If the plugin's `@types/node` is older, raise it in `devDependencies` only.
 
@@ -246,7 +248,7 @@ Add a boolean to `config.schema.json`, off by default:
   "title": "Send Signals to PagerDuty",
   "type": "boolean",
   "default": false,
-  "description": "Write this plugin's alert conditions to homebridge-pagerduty's signal store. Also add homebridge-example to Signal Sources in homebridge-pagerduty. Needs Node 22.13 or later."
+  "description": "Write this plugin's alert conditions to homebridge-pagerduty's signal store. Then allow homebridge-example to page in homebridge-pagerduty's settings. Needs Node 22.13 or later."
 }
 ```
 
@@ -295,17 +297,32 @@ api.on('shutdown', () => {
 - If a condition can change faster than once per second, write only its latest state at most once per second.
 - For a condition that belongs to one device, include the device in the signal name, such as `sump-high.basement`. Keep the name stable for as long as the device exists.
 
+### Startup log
+
+When the setting is on, log one `info` line at startup, once per process:
+
+```text
+homebridge-pagerduty support is enabled (sump-high, hub-offline)
+```
+
+- Use that sentence. Put this plugin's signal names in the parentheses, in a fixed order, separated by a comma and a space.
+- For a signal whose name includes a device, log the pattern once, such as `sump-high.<device>`. Do not log one name per device: a device name belongs to the user, and this line gets copied into logs and issue reports.
+- Log it with the plugin's other startup lines, and before the first operation that can fail, so the line still appears when startup then fails.
+- Do not log it when the setting is off, and do not log it again when startup retries.
+- On a Node version without `node:sqlite`, still log the line. The module's warning comes later, on the first write.
+
 ## Tests
 
 Use the plugin's test framework. Run each test against a real SQLite file in a temporary directory, and skip the tests that need `node:sqlite` on a Node version without it.
 
-1. A write creates `homebridge-pagerduty/` with mode `0700` and `signals.sqlite` with mode `0600`.
+1. A write creates `homebridge-pagerduty/` and `homebridge-pagerduty/signals-2026-10-24/` with mode `0700`, and `signals-2026-10-24/signals.sqlite` with mode `0600`.
 2. A row read back through a separate `DatabaseSync` connection has the expected `plugin`, `signal`, `active`, `severity` and `summary`.
 3. Writing the same state twice does not change `updated_at`.
-4. A store with `PRAGMA user_version = 2` gets no row, and the plugin logs exactly one `warn`.
+4. A summary with a newline is stored with a space in its place.
 5. With `process.getBuiltinModule` replaced by a function that returns `undefined`, nothing is created, and the plugin logs exactly one `warn`.
 6. With the setting off, no directory or file is created.
 7. The plugin calls `write` for every signal at startup, and `close` on shutdown.
+8. With the setting on, startup logs `homebridge-pagerduty support is enabled` once, and the line names every signal. With the setting off, it does not log that line. A retried startup does not log it again.
 
 ## README section
 
@@ -317,16 +334,14 @@ Add this to the plugin's README, with the real signals in the table:
 This plugin can page through [homebridge-pagerduty](https://github.com/tbaur/homebridge-pagerduty) when something needs attention. It needs Node 22.13 or later.
 
 1. Turn on **Send Signals to PagerDuty** (`pagerdutySignals`) in this plugin's settings.
-2. In homebridge-pagerduty's settings, open **Other Plugins** and add `homebridge-example` to **Signal Sources**.
-3. Restart Homebridge.
+2. Restart Homebridge.
+3. In homebridge-pagerduty's settings, allow homebridge-example to page, save, and restart Homebridge again. [Signals from other plugins](https://github.com/tbaur/homebridge-pagerduty/blob/main/docs/SIGNALS.md#let-a-plugin-page) explains each step and what else you can set for each signal.
 
 Each condition below then opens a PagerDuty alert while it is present, and resolves it when it clears.
 
 | Signal | Severity | Active when |
 | --- | --- | --- |
 | `sump-high` | error | The sump water level is above the alarm line |
-
-To give a condition its own HomeKit switch, add an alert in homebridge-pagerduty with one level and set its **Follow Signal** field, for example `homebridge-example/sump-high`.
 ```
 
 ## Done when
@@ -335,6 +350,7 @@ To give a condition its own HomeKit switch, add an alert in homebridge-pagerduty
 - [ ] The setting shows in Homebridge's settings screen. If `config.schema.json` has a `layout` array, `pagerdutySignals` is listed in it.
 - [ ] The module is copied unchanged, and `node:sqlite` is not imported anywhere else.
 - [ ] Every signal is written once at startup, and again whenever it changes.
+- [ ] With the setting on, startup logs `homebridge-pagerduty support is enabled` once, with every signal named, before the first operation that can fail. With the setting off, it does not log that line.
 - [ ] `close` is called on shutdown, and no signal is cleared there.
 - [ ] The tests above pass, and the plugin's existing tests and lint still pass.
 - [ ] The README section lists every signal, with its name, its severity and when it is active.

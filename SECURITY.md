@@ -4,8 +4,8 @@
 
 | Version | Supported              |
 | ------- | ---------------------- |
-| 1.x.x   | ✅ Supported           |
-| < 1.0   | ❌ Not supported       |
+| 2.x.x   | ✅ Supported           |
+| < 2.0   | ❌ Not supported       |
 
 ## Reporting a Vulnerability
 
@@ -31,7 +31,7 @@ If a key leaks, delete the integration in PagerDuty, create a new one, and put t
 - **Escaped log values.** Alert names, summaries and anything written by another plugin pass through `forLog`, which escapes control characters and caps length. A value cannot inject a fake log line or terminal escape codes.
 - **Input validation.** Config is checked at startup. A missing key starts nothing. An unusable config disables the platform without unregistering accessories. A bad alert entry is held until it is fixed.
 - **Bounded I/O.** Separate connect and total timeouts on every request, a 64 KiB response cap, and no redirects followed.
-- **Owner-only files.** Everything the plugin writes lives in one `homebridge-pagerduty` directory inside the Homebridge storage directory, created with mode `0700`. The state file and the signal store, including its `-wal` and `-shm` files, are created with mode `0600`. Store files found with a looser mode are tightened, and the plugin logs that.
+- **Owner-only files.** The plugin writes to one `homebridge-pagerduty` directory inside the Homebridge storage directory. That directory and the signal store's interface directory inside it are created with mode `0700`. The plugin also writes the settings screen file `.homebridge-pagerduty-v1.schema.json` next to it, where the Homebridge UI looks for it. The state file, the settings screen file and the signal store, including its `-wal` and `-shm` files, are created with mode `0600`. Store files found with a looser mode are tightened, and the plugin logs that.
 - **No runtime dependencies.** HTTPS and SQLite come from Node.
 - **Dependencies audited.** CI runs `npm audit` on the runtime tree and OSV-Scanner on the full tree.
 - **A CI step rejects key-shaped strings** in the docs, source, tests, scripts, schema and workflows, so a key cannot be committed by accident. Tests build their fake keys at runtime, and the suite refuses to run if `PAGERDUTY_ROUTING_KEY` is set.
@@ -39,13 +39,14 @@ If a key leaks, delete the integration in PagerDuty, create a new one, and put t
 
 ## The signal store
 
-Other plugins can raise alerts by writing rows to `homebridge-pagerduty/signals.sqlite` in the Homebridge storage directory. [docs/SIGNALS.md](docs/SIGNALS.md) is the interface, and [docs/SIGNALS-AGENT.md](docs/SIGNALS-AGENT.md) is the same interface written for coding agents.
+Other plugins can raise alerts by writing rows to `homebridge-pagerduty/signals-2026-10-24/signals.sqlite` in the Homebridge storage directory. [docs/SIGNALS.md](docs/SIGNALS.md) is the interface, and [docs/SIGNALS-AGENT.md](docs/SIGNALS-AGENT.md) is the same interface written for coding agents.
 
-**Signal Sources is not authentication.** The `signals.sources` list stops a well-behaved plugin from paging someone who never asked it to. It does not stop hostile code: any process that runs as the Homebridge user can write a row under any package name. Such a process can also read `config.json`, and the key in it, so the store adds no new exposure.
+**Allowing a plugin is not authentication.** The **Allow this plugin to page** setting stops a well-behaved plugin from paging someone who never asked it to. It does not stop hostile code: any process that runs as the Homebridge user can write a row under any package name. Such a process can also read `config.json`, and the key in it, so the store adds no new exposure.
 
 What the plugin does to keep the store safe to read:
 
-- The `signals.sources` list is part of the SQL query, so rows from unlisted plugins cannot push listed rows out of the read.
+- The list of allowed plugins is part of the SQL query, so rows from other plugins cannot push allowed rows out of the read.
+- Names and text that other plugins write are validated and length-capped. On the settings screen, that text is only ever a field's starting value, never a title or description, which the Homebridge UI renders as markup.
 - The schema's `CHECK` constraints limit `plugin` to package-name characters and cap every text column. Rows are validated again when read, in case another plugin created the table differently.
 - A read error never clears an alert, so a damaged or locked store cannot silently resolve a page.
 
@@ -55,7 +56,7 @@ What the plugin does to keep the store safe to read:
 2. Run Homebridge with minimal privileges, and do not expose it to the internet.
 3. Protect the Homebridge configuration file and any backup of it as you would a password file, because it contains a key that can page people.
 4. Use a dedicated PagerDuty service, or at least a dedicated integration, for this plugin, so you can revoke its key without affecting anything else.
-5. Add only plugins you trust to `signals.sources`.
+5. Allow only plugins you trust under Plugin Signals.
 6. Test once after setup and after any key change, because PagerDuty accepts events for a revoked key.
 
 ## Response Timeline

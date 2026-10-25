@@ -25,7 +25,8 @@ export declare function bindAccessoryContext(accessory: PlatformAccessory, resol
 /**
  * The identity key an accessory's UUID is generated from.
  *
- * Alert id plus severity, never a name. Changing a level's severity therefore
- * creates a new tile, which the README says next to the `levels` setting.
+ * Alert id plus severity, or plugin plus signal, never a name. Changing a
+ * level's severity therefore creates a new tile, which the README says next
+ * to the `levels` setting.
  */
-export declare function accessoryIdentityKey(accessory: Pick<ResolvedAccessory, 'kind' | 'alertId' | 'severity'>): string;
+export declare function accessoryIdentityKey(accessory: Pick<ResolvedAccessory, 'kind' | 'alertId' | 'severity' | 'signal'>): string;

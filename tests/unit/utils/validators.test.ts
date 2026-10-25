@@ -9,14 +9,14 @@
  * incident, delete a tile, or put the routing key into a log line.
  */
 
-import type { PagerDutyPlatformConfig, ResolvedConfig } from '../../../src/types'
+import type { PagerDutyPlatformConfig, ResolvedConfig, SignalPluginConfig } from '../../../src/types'
 import {
-  defaultLevelName,
+  levelSwitchName,
   resolveAccessories,
   resolveDiagnosticsIntervalSec,
   validateConfig,
 } from '../../../src/utils/validators'
-import { resolvedConfig } from '../../helpers/config'
+import { allowedPlugin, resolvedConfig, signal } from '../../helpers/config'
 import { FAKE_ROUTING_KEY } from '../../helpers/secrets'
 
 function base(overrides: Partial<PagerDutyPlatformConfig> = {}): PagerDutyPlatformConfig {
@@ -80,7 +80,7 @@ describe('validateConfig: platform fields', () => {
       alerts: [],
       heldAlertIds: [],
       maintenance: { switch: false, name: 'PagerDuty Maintenance', maxMinutes: 240 },
-      signalSources: [],
+      signalPlugins: [],
       options: {
         deliveryFaultSensor: true,
         deliveryFaultSensorName: 'PagerDuty Delivery',
@@ -155,22 +155,117 @@ describe('validateConfig: platform fields', () => {
   })
 })
 
-describe('validateConfig: signal sources', () => {
-  it('keeps valid package names once each', () => {
-    expect(ok(base({ signals: { sources: ['homebridge-example', '@scope/homebridge-x', 'homebridge-example'] } })).signalSources)
-      .toEqual(['homebridge-example', '@scope/homebridge-x'])
+describe('validateConfig: plugin signals', () => {
+  const settings = (patch: Record<string, unknown>): PagerDutyPlatformConfig => base({
+    signals: { 'homebridge-example': { allow: true, signals: { 'cloud-offline': patch } } },
   })
 
-  it('skips an unusable entry, including this plugin itself', () => {
-    const result = validateConfig(base({ signals: { sources: ['Bad Name', 'homebridge-pagerduty', 3] } }))
-
-    expect(result.config?.signalSources).toEqual([])
-    expect(result.warnings).toHaveLength(3)
+  it('resolves an untouched signal to the plugin\'s own settings', () => {
+    expect(ok(settings({})).signalPlugins).toEqual([{
+      plugin: 'homebridge-example',
+      allow: true,
+      signals: [{
+        plugin: 'homebridge-example',
+        signal: 'cloud-offline',
+        enabled: true,
+        bypassMaintenance: false,
+        switch: false,
+        switchName: 'Cloud Offline',
+      }],
+    }])
   })
 
-  it('warns about a sources value that is not a list', () => {
-    expect(validateConfig(base({ signals: { sources: 'homebridge-example' } })).warnings)
-      .toEqual(['signals.sources is not a list; the signal store stays closed'])
+  it('resolves every setting a user can change', () => {
+    const patch = { enabled: false, summary: '  Cloud is down  ', severity: 'error', bypassMaintenance: true, switch: true, switchName: 'Example Cloud' }
+
+    expect(ok(settings(patch)).signalPlugins[0]!.signals[0]).toEqual({
+      plugin: 'homebridge-example',
+      signal: 'cloud-offline',
+      enabled: false,
+      summary: 'Cloud is down',
+      severity: 'error',
+      bypassMaintenance: true,
+      switch: true,
+      switchName: 'Example Cloud',
+    })
+  })
+
+  it('treats a blank title and the plugin severity as no override', () => {
+    const signal = ok(settings({ summary: '  ', severity: 'plugin' })).signalPlugins[0]!.signals[0]!
+
+    expect(signal).not.toHaveProperty('summary')
+    expect(signal).not.toHaveProperty('severity')
+  })
+
+  it.each<[string, Record<string, unknown>, string]>([
+    ['a title that is not text', { summary: 5 }, 'signals.homebridge-example.signals.cloud-offline.summary is not text; using the plugin\'s text'],
+    ['a title with a newline', { summary: 'a\nb' }, 'signals.homebridge-example.signals.cloud-offline.summary contains control characters; using the plugin\'s text'],
+    ['a title that is too long', { summary: 's'.repeat(1025) }, 'signals.homebridge-example.signals.cloud-offline.summary is longer than 1024 characters; using the plugin\'s text'],
+    ['a bad severity', { severity: 'urgent' }, 'signals.homebridge-example.signals.cloud-offline.severity urgent is not a severity; using the plugin\'s'],
+    ['a bad switch name', { switchName: 'a\u0007b' }, 'signals.homebridge-example.signals.cloud-offline.switchName contains control characters; using Cloud Offline'],
+  ])('warns about %s and keeps the plugin\'s value', (_name, patch, warning) => {
+    const result = validateConfig(settings(patch))
+
+    expect(result.status).toBe('ok')
+    expect(result.warnings).toEqual([warning])
+  })
+
+  it('maps a scoped package back from its config key', () => {
+    expect(ok(base({ signals: { '@scope:homebridge-x': { allow: true } } })).signalPlugins)
+      .toEqual([{ plugin: '@scope/homebridge-x', allow: true, signals: [] }])
+  })
+
+  it('keeps a plugin that is not allowed, so its saved settings survive', () => {
+    expect(ok(base({ signals: { 'homebridge-example': { signals: { door: {} } } } })).signalPlugins[0])
+      .toEqual(expect.objectContaining({ plugin: 'homebridge-example', allow: false }))
+  })
+
+  it('skips unusable keys and entries without failing the config', () => {
+    const result = validateConfig(base({
+      signals: {
+        'Bad Name': { allow: true },
+        'homebridge-pagerduty': { allow: true },
+        'a:b:c': { allow: true },
+        'homebridge-list': [],
+        'homebridge-example': { allow: true, signals: { 'Bad Signal': {}, door: 'yes', window: {} } },
+        '@scope:homebridge-x': { allow: true },
+        '@scope/homebridge-x': { allow: true },
+      },
+    }))
+
+    expect(result.status).toBe('ok')
+    expect(result.config?.signalPlugins.map((entry) => entry.plugin)).toEqual(['homebridge-example', '@scope/homebridge-x'])
+    expect(result.config?.signalPlugins[0]!.signals.map((entry) => entry.signal)).toEqual(['window'])
+    expect(result.warnings).toEqual([
+      'signals: Bad Name is not a package name with settings; skipped',
+      'signals: homebridge-pagerduty is not a package name with settings; skipped',
+      'signals: a:b:c is not a package name with settings; skipped',
+      'signals: homebridge-list is not a package name with settings; skipped',
+      'signals.homebridge-example: Bad Signal is not a signal name with settings; skipped',
+      'signals.homebridge-example: door is not a signal name with settings; skipped',
+      'signals: @scope/homebridge-x appears twice; the second entry is skipped',
+    ])
+  })
+
+  it('warns about a signals value that is not an object, and a signals list that is not one either', () => {
+    expect(validateConfig(base({ signals: ['homebridge-example'] })).warnings).toEqual(['signals is not an object; no plugin may page'])
+    expect(validateConfig(base({ signals: { 'homebridge-example': { allow: true, signals: [] } } })).warnings)
+      .toEqual(['signals.homebridge-example.signals is not an object; its signals use the plugin\'s settings'])
+  })
+
+  it('caps the number of plugins and of signals per plugin', () => {
+    const plugins: Record<string, SignalPluginConfig> = Object.fromEntries(Array.from({ length: 21 }, (_unused, index) => [`homebridge-p${index}`, { allow: true }]))
+    const signals = Object.fromEntries(Array.from({ length: 51 }, (_unused, index) => [`s${index}`, {}]))
+    plugins['homebridge-p0'] = { allow: true, signals }
+
+    const result = validateConfig(base({ signals: plugins }))
+
+    expect(result.config?.signalPlugins).toHaveLength(20)
+    expect(result.config?.signalPlugins[0]!.signals).toHaveLength(50)
+    expect(result.warnings).toEqual([
+      'signals.homebridge-p0: at most 50 signals are read; s50 skipped',
+      'signals: at most 20 plugins are read; homebridge-p20 skipped',
+    ])
   })
 })
 
@@ -180,20 +275,20 @@ describe('validateConfig: alerts', () => {
       id: 'leak',
       name: 'Leak',
       summary: 'Water detected',
-      levels: [{ severity: 'critical', name: 'Leak' }],
+      levels: [{ severity: 'critical', name: 'Leak Critical' }],
       resolveAfterMinutes: 0,
       bypassMaintenance: false,
     }])
   })
 
-  it('names levels from the alert unless told otherwise', () => {
+  it('names each switch with the prefix and its severity', () => {
     const config = ok(base({
-      alerts: [{ id: 'freezer', name: 'Freezer', summary: 's', levels: [{ severity: 'warning' }, { severity: 'critical', name: 'Freezer Hot' }] }],
+      alerts: [{ id: 'freezer', name: 'Freezer', summary: 's', levels: [{ severity: 'warning' }, { severity: 'critical' }] }],
     }))
 
     expect(config.alerts[0]!.levels).toEqual([
       { severity: 'warning', name: 'Freezer Warning' },
-      { severity: 'critical', name: 'Freezer Hot' },
+      { severity: 'critical', name: 'Freezer Critical' },
     ])
   })
 
@@ -234,11 +329,8 @@ describe('validateConfig: alerts', () => {
     ['a repeated severity', { levels: [{ severity: 'info' }, { severity: 'info' }] }, 'each level needs a distinct severity'],
     ['a bad severity', { levels: [{ severity: 'urgent' }] }, 'each level needs a distinct severity'],
     ['a non-object level', { levels: ['critical'] }, 'each level needs a distinct severity'],
-    ['a bad level name', { levels: [{ severity: 'info', name: '' }] }, 'level name is missing'],
     ['a bad timer', { resolveAfterMinutes: -1 }, 'resolveAfterMinutes must be a whole number from 0 to 10080'],
     ['a fractional timer', { resolveAfterMinutes: 1.5 }, 'resolveAfterMinutes must be a whole number'],
-    ['a malformed signal', { signal: 'no-slash' }, 'signal must be <package>/<signal>'],
-    ['a bound alert with two levels', { signal: 'homebridge-example/x', levels: [{ severity: 'info' }, { severity: 'error' }] }, 'an alert bound to a signal must have exactly one level'],
   ])('holds an alert with %s, keeping its accessories and state', (_name, patch, problem) => {
     const entry = { id: 'leak', name: 'Leak', summary: 'Water detected', levels: [{ severity: 'critical' }], ...patch }
 
@@ -250,33 +342,13 @@ describe('validateConfig: alerts', () => {
     expect(result.warnings.join('\n')).toContain(problem)
     expect(result.warnings.join('\n')).toContain('alert leak is held until fixed')
   })
-
-  it('binds an alert to a signal and warns when its package is not allowed', () => {
-    const result = validateConfig(base({
-      alerts: [{ id: 'sump', name: 'Sump', summary: 's', levels: [{ severity: 'error' }], signal: 'homebridge-example/sump-high', bypassMaintenance: true, resolveAfterMinutes: 30 }],
-    }))
-
-    expect(result.config?.alerts[0]).toEqual(expect.objectContaining({
-      signal: { plugin: 'homebridge-example', signal: 'sump-high' }, bypassMaintenance: true, resolveAfterMinutes: 30,
-    }))
-    expect(result.warnings).toEqual(['alert sump is bound to homebridge-example, which is not in signals.sources; its row is never read'])
-  })
-
-  it('treats an empty signal as unbound', () => {
-    expect(ok(base({ alerts: [{ id: 'a', name: 'A', summary: 's', levels: [{ severity: 'info' }], signal: '' }] })).alerts[0])
-      .not.toHaveProperty('signal')
-  })
 })
 
-describe('defaultLevelName', () => {
-  it('uses the alert name for a single level', () => {
-    expect(defaultLevelName('Leak', 'critical', 1)).toBe('Leak')
-  })
+describe('levelSwitchName', () => {
+  it('appends the severity, shortening a long prefix to fit HomeKit', () => {
+    expect(levelSwitchName('Leak', 'critical')).toBe('Leak Critical')
 
-  it('appends the severity, shortening a long name to fit HomeKit', () => {
-    expect(defaultLevelName('Freezer', 'critical', 2)).toBe('Freezer Critical')
-
-    const name = defaultLevelName('n'.repeat(64), 'warning', 2)
+    const name = levelSwitchName('n'.repeat(64), 'warning')
     expect(name).toHaveLength(64)
     expect(name.endsWith('\u2026 Warning')).toBe(true)
   })
@@ -341,5 +413,42 @@ describe('resolveAccessories', () => {
     resolveAccessories(config, warnings)
 
     expect(warnings).toEqual(['duplicate name: Zone One Leak (2)'])
+  })
+
+  it('adds a switch for each allowed, enabled signal that asks for one, before maintenance', () => {
+    const config = resolvedConfig({
+      signalPlugins: [
+        allowedPlugin('homebridge-example', [
+          signal({ signal: 'door', switch: true, switchName: 'Zone Two' }),
+          signal({ signal: 'muted', switch: true, enabled: false }),
+          signal({ signal: 'quiet' }),
+        ]),
+        { plugin: 'homebridge-off', allow: false, signals: [signal({ plugin: 'homebridge-off', signal: 'x', switch: true })] },
+      ],
+    })
+
+    expect(resolveAccessories(config).filter((entry) => entry.kind === 'signal')).toEqual([
+      { kind: 'signal', name: 'Zone Two', signal: { plugin: 'homebridge-example', signal: 'door' } },
+    ])
+    expect(resolveAccessories(config).map((entry) => entry.kind)).toEqual(['alert', 'signal', 'maintenance', 'delivery'])
+  })
+
+  it('caps signal switches and says how many were skipped', () => {
+    const signals = Array.from({ length: 22 }, (_unused, index) => signal({ signal: `s${index}`, switch: true, switchName: `S${index}` }))
+    const warnings: string[] = []
+
+    const accessories = resolveAccessories(resolvedConfig({ signalPlugins: [allowedPlugin('homebridge-example', signals)] }), warnings)
+
+    expect(accessories.filter((entry) => entry.kind === 'signal')).toHaveLength(20)
+    expect(warnings).toEqual(['at most 20 signal switches are created; skipped homebridge-example/s20, homebridge-example/s21'])
+  })
+
+  it('names at most five skipped signal switches', () => {
+    const signals = Array.from({ length: 27 }, (_unused, index) => signal({ signal: `s${index}`, switch: true }))
+    const warnings: string[] = []
+
+    resolveAccessories(resolvedConfig({ signalPlugins: [allowedPlugin('homebridge-example', signals)] }), warnings)
+
+    expect(warnings[0]).toMatch(/skipped homebridge-example\/s20, .*homebridge-example\/s24 and 2 more$/)
   })
 })

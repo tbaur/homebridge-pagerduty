@@ -21,8 +21,9 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const STORE_DIR = 'homebridge-pagerduty'
+// The interface this writer was written for. See "Interface identifier" in docs/SIGNALS.md.
+const INTERFACE_ID = 'signals-2026-10-24'
 const STORE_FILE = 'signals.sqlite'
-const INTERFACE_VERSION = 1
 const BUSY_TIMEOUT_MS = 1000
 
 const SCHEMA = `PRAGMA journal_mode = WAL;
@@ -43,12 +44,11 @@ const UPSERT = 'INSERT INTO signals (plugin, signal, active, severity, summary, 
 /**
  * Open the store the way every writer must: create its directory and file
  * owner-only, keep the busy timeout short (node:sqlite blocks the process
- * while it waits), run the published schema, and stop if the store is a newer
- * interface version.
+ * while it waits), and run the published schema.
  */
 function openStore(storageDir) {
   const { DatabaseSync } = process.getBuiltinModule('node:sqlite')
-  const dir = path.join(storageDir, STORE_DIR)
+  const dir = path.join(storageDir, STORE_DIR, INTERFACE_ID)
   const file = path.join(dir, STORE_FILE)
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   fs.closeSync(fs.openSync(file, 'a', 0o600))
@@ -56,12 +56,6 @@ function openStore(storageDir) {
   try {
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`)
     db.exec(SCHEMA)
-    const version = Number(db.prepare('PRAGMA user_version').get().user_version)
-    if (version === 0) {
-      db.exec(`PRAGMA user_version = ${INTERFACE_VERSION}`)
-    } else if (version > INTERFACE_VERSION) {
-      throw new Error(`signal store is interface version ${version}; this writer knows ${INTERFACE_VERSION}. Not writing`)
-    }
     return db
   } catch (error) {
     db.close()
@@ -84,7 +78,7 @@ function writeSignal(db, signal) {
   )
 }
 
-module.exports = { SCHEMA, STORE_DIR, STORE_FILE, openStore, writeSignal }
+module.exports = { SCHEMA, STORE_DIR, INTERFACE_ID, STORE_FILE, openStore, writeSignal }
 
 if (require.main === module) {
   const { fail, parseFlags, run } = require('./lib/common')

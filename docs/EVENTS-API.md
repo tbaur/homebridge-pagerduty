@@ -57,7 +57,7 @@ Trigger:
     "timestamp": "2026-10-23T21:14:05.000Z",
     "component": "freezer",
     "group": "homebridge-pagerduty",
-    "custom_details": { "origin": "switch", "level": "Freezer Hot" }
+    "custom_details": { "origin": "switch", "level": "Freezer Critical" }
   }
 }
 ```
@@ -68,6 +68,6 @@ Resolve:
 { "routing_key": "<routing key>", "event_action": "resolve", "dedup_key": "homebridge/freezer" }
 ```
 
-- `dedup_key` is `<source>/<alert id>` for an alert and `<source>/<plugin>/<signal>` for a signal row that is not tied to an alert. An alert id cannot contain `/`, so the two forms cannot collide.
+- `dedup_key` is `<source>/<alert id>` for an alert and `<source>/<plugin>/<signal>` for a signal. An alert id cannot contain `/`, so the two forms cannot collide.
 - `timestamp` is when the condition changed, not when the request was sent. A trigger delivered after an outage still shows the real start time.
 - A resolve always uses the `dedup_key` recorded when the alert was opened. Changing `source` while an alert is open therefore resolves the old key and triggers the new one.

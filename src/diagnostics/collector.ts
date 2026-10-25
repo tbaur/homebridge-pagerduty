@@ -132,10 +132,17 @@ function redactConfig(config: PagerDutyPlatformConfig): Record<string, unknown> 
     region: config.region ?? 'us',
     alerts: Array.isArray(config.alerts) ? config.alerts.length : 0,
     maintenanceSwitch: config.maintenance?.switch === true,
-    signalSources: Array.isArray(config.signals?.sources) ? config.signals.sources.length : 0,
+    signalPluginsAllowed: countAllowedPlugins(config.signals),
     deliveryFaultSensor: options?.deliveryFaultSensor !== false,
     dryRun: options?.dryRun === true,
     diagnosticsInterval: options?.diagnosticsInterval ?? 0,
     structuredLogs: options?.structuredLogs === true,
   }
+}
+
+function countAllowedPlugins(signals: unknown): number {
+  if (typeof signals !== 'object' || signals === null) {
+    return 0
+  }
+  return Object.values(signals).filter((entry: unknown) => (entry as { allow?: unknown } | null)?.allow === true).length
 }

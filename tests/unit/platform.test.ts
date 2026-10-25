@@ -10,7 +10,7 @@
  * reach PagerDuty.
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -44,7 +44,8 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.useRealTimers()
-  rmSync(dir, { recursive: true, force: true })
+  // The settings screen is written in the background and may still be landing.
+  rmSync(dir, { recursive: true, force: true, maxRetries: 5 })
 })
 
 function fakeApi(): FakeApi {
@@ -135,13 +136,21 @@ async function settle(): Promise<void> {
   }
 }
 
+/** A file the platform writes in the background, once it exists. Fails after two seconds. */
+async function readWhenWritten(path: string): Promise<string> {
+  for (let attempt = 0; attempt < 200 && !existsSync(path); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  return readFileSync(path, 'utf8')
+}
+
 function onOf(accessory: FakeAccessory) {
   return accessory.service('Switch').getCharacteristic(characteristics.On)
 }
 
 describe('when not configured', () => {
   it('logs one line, starts nothing, and keeps cached accessories answering No Response', async () => {
-    const restored = cached('Zone One Leak', 'alert:leak:critical', { kind: 'alert', alertId: 'leak', severity: 'critical' })
+    const restored = cached('Zone One Leak Critical', 'alert:leak:critical', { kind: 'alert', alertId: 'leak', severity: 'critical' })
     const { fake, log } = create(config({ routingKey: '' }), [restored])
 
     fake.launch()
@@ -198,7 +207,7 @@ describe('when configured', () => {
     fake.launch()
 
     expect(fake.registered.map((accessory) => [accessory.displayName, accessory.UUID])).toEqual([
-      ['Zone One Leak', 'uuid:homebridge-pagerduty:alert:leak:critical'],
+      ['Zone One Leak Critical', 'uuid:homebridge-pagerduty:alert:leak:critical'],
       ['PagerDuty Maintenance', 'uuid:homebridge-pagerduty:maintenance'],
       ['PagerDuty Delivery', 'uuid:homebridge-pagerduty:delivery'],
     ])
@@ -213,12 +222,51 @@ describe('when configured', () => {
     await fake.shutdown()
   })
 
-  it('lists each signal source in the startup report, before the store has been written', async () => {
-    const { fake, log } = create(config({ signals: { sources: ['homebridge-example'] } }))
+  it('lists each allowed plugin in the startup report and the settings screen, before the store has been written', async () => {
+    const { fake, log } = create(config({ signals: { 'homebridge-example': { allow: true } } }))
 
     fake.launch()
 
     expect(log.calls).toContain('info Signals from homebridge-example: none written yet')
+    const screen = JSON.parse(await readWhenWritten(join(dir, '.homebridge-pagerduty-v1.schema.json'))) as {
+      dynamicSchemaVersion?: number
+      schema: { properties: { signals: { properties: Record<string, unknown> } } }
+    }
+    expect(screen.dynamicSchemaVersion).toBeUndefined()
+    expect(Object.keys(screen.schema.properties.signals.properties)).toEqual(['homebridge-example'])
+    await fake.shutdown()
+  })
+
+  it('creates a signal switch that pages with the signal\'s settings', async () => {
+    const signals = { 'homebridge-example': { allow: true, signals: { door: { switch: true, switchName: 'Zone Two', summary: 'Zone Two door open' } } } }
+    const { fake, log } = create(config({ signals }))
+    fake.launch()
+    const door = fake.registered.find((accessory) => accessory.displayName === 'Zone Two')!
+
+    expect(door.UUID).toBe('uuid:homebridge-pagerduty:signal:homebridge-example/door')
+    expect(door.context).toEqual(expect.objectContaining({ kind: 'signal', signal: { plugin: 'homebridge-example', signal: 'door' } }))
+    expect(log.calls).toContain('info Signal switch: Zone Two (new) for homebridge-example/door')
+    expect(onOf(door).read()).toBe(false)
+
+    await onOf(door).write(true)
+    await settle()
+
+    expect(onOf(door).read()).toBe(true)
+    expect(post.mock.calls[0]![1]).toEqual(expect.objectContaining({
+      event_action: 'trigger',
+      dedup_key: 'homebridge/homebridge-example/door',
+      payload: expect.objectContaining({ summary: 'Zone Two door open', severity: 'critical' }),
+    }))
+    await fake.shutdown()
+  })
+
+  it('removes a signal switch when its plugin is no longer allowed', async () => {
+    const restored = cached('Zone Two', 'signal:homebridge-example/door', { kind: 'signal', signal: { plugin: 'homebridge-example', signal: 'door' } })
+    const { fake } = create(config({ signals: { 'homebridge-example': { allow: false, signals: { door: { switch: true } } } } }), [restored])
+
+    fake.launch()
+
+    expect(fake.unregistered).toEqual([restored])
     await fake.shutdown()
   })
 
@@ -263,9 +311,9 @@ describe('when configured', () => {
     fake.launch()
 
     expect(fake.registered.map((accessory) => accessory.displayName)).toEqual(['PagerDuty Maintenance', 'PagerDuty Delivery'])
-    expect(restored.displayNameUpdates).toEqual(['Zone One Leak'])
+    expect(restored.displayNameUpdates).toEqual(['Zone One Leak Critical'])
     expect(restored.context.serialNumber).toBe('SERIAL-0001')
-    expect(log.calls).toContain('info Alert switch: leak "Water detected" (critical; renamed Old Name to Zone One Leak)')
+    expect(log.calls).toContain('info Alert switch: leak "Water detected" (critical; renamed Old Name to Zone One Leak Critical)')
     expect(log.calls.filter((line) => line.includes('Old Name'))).toHaveLength(1)
     await fake.shutdown()
   })
@@ -285,7 +333,7 @@ describe('when configured', () => {
     expect(log.calls).toContain('info Maintenance switch: House Work (renamed from PagerDuty Maintenance); turns off after 240 min')
     expect(log.calls).toContain('info Delivery sensor: Paging Health (renamed from PagerDuty Delivery)')
     expect(fake.unregistered).toEqual([])
-    expect(fake.registered.map((accessory) => accessory.displayName)).toEqual(['Zone One Leak'])
+    expect(fake.registered.map((accessory) => accessory.displayName)).toEqual(['Zone One Leak Critical'])
     await fake.shutdown()
   })
 
@@ -336,7 +384,7 @@ describe('when configured', () => {
 
     fake.launch()
 
-    expect(log.calls).toContain('warn duplicate name: Same (2)')
+    expect(log.calls).toContain('warn duplicate name: Same Critical (2)')
     await fake.shutdown()
   })
 
@@ -351,7 +399,7 @@ describe('when configured', () => {
 
   it('disables itself, keeping cached accessories, when the state file cannot be read', () => {
     mkdirSync(join(dir, 'homebridge-pagerduty', 'state.json'), { recursive: true })
-    const restored = cached('Zone One Leak', 'alert:leak:critical', { kind: 'alert', alertId: 'leak', severity: 'critical' })
+    const restored = cached('Zone One Leak Critical', 'alert:leak:critical', { kind: 'alert', alertId: 'leak', severity: 'critical' })
     const { fake, log } = create(config(), [restored])
 
     fake.launch()

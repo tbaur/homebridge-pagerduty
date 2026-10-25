@@ -87,7 +87,7 @@ While the maintenance switch is on:
 - New triggers and severity raises are held.
 - Resolves are always sent.
 - Alerts with `bypassMaintenance: true` are not held.
-- Signals from other plugins are always held, unless they are tied to an alert with `bypassMaintenance: true`.
+- Signals from other plugins are held too, unless **Page During Maintenance** is checked for that signal.
 
 When maintenance ends, anything still active is sent. A condition that started and ended during maintenance sends nothing.
 
@@ -99,7 +99,7 @@ PagerDuty state is never read. If a person resolves the incident while the switc
 
 ### Pages from other plugins
 
-Another Homebridge plugin can page through this one by writing to the [signal store](SIGNALS.md). It can page only after you add its package name to `signals.sources` (**Signal Sources**, under **Other Plugins** in the settings). Its alerts have no switch unless you tie one of your alerts to it with the alert's **Follow Signal** field (`signal` in `config.json`). [SIGNALS.md](SIGNALS.md#for-users) explains both.
+Another Homebridge plugin can page through this one by writing to the [signal store](SIGNALS.md). Each plugin that has written appears under **Plugin Signals** in the settings, with its signals. It can page only after you check **Allow this plugin to page**. For each signal you can change the PagerDuty message and severity, let it page during maintenance, mute it, or add a HomeKit switch. [SIGNALS.md](SIGNALS.md#for-users) explains each setting.
 
 ## Reliability in detail
 
@@ -115,7 +115,7 @@ For every alert, the plugin saves two things to disk: what should be true, based
 - **A removed alert** (its `id` is gone from the config) is resolved if it was open, and its switches are removed.
 - **A changed integration key:** PagerDuty ignores a resolve sent on a different key. The plugin names each alert that was open on the old key in one `warn` so you can resolve it by hand, then sends anything still active on the new key. The state file stores only a one-way fingerprint of the key.
 
-Files written: everything goes in one `homebridge-pagerduty` directory inside the Homebridge storage directory, readable only by its owner. It holds `state.json` and, when signal sources are set, `signals.sqlite` with its `-wal` and `-shm` files. The state file is replaced atomically on every change. Deleting the directory removes everything the plugin wrote; do that only with no alerts open, because the plugin then forgets what is open in PagerDuty.
+Files written: everything goes in one `homebridge-pagerduty` directory inside the Homebridge storage directory, readable only by its owner. It holds `state.json` and, once a plugin is allowed or another plugin has created it, `signals-2026-10-24/signals.sqlite` with its `-wal` and `-shm` files. `signals-2026-10-24` names the signal store interface, and is explained in [SIGNALS.md](SIGNALS.md#interface-identifier). The settings screen for Plugin Signals is written to `.homebridge-pagerduty-v1.schema.json` in the storage directory itself, where the Homebridge UI looks for it. The state file is replaced atomically on every change. Deleting the directory removes everything the plugin wrote; do that only with no alerts open, because the plugin then forgets what is open in PagerDuty.
 
 ## Full configuration reference
 
@@ -131,7 +131,7 @@ Files written: everything goes in one `homebridge-pagerduty` directory inside th
 | `maintenance.switch` | `false` | Add the maintenance switch |
 | `maintenance.name` | `PagerDuty Maintenance` | The maintenance switch's name in HomeKit, up to 64 characters |
 | `maintenance.maxMinutes` | `240` | Maintenance turns itself off after this long, 15–10080 |
-| `signals.sources` | `[]` | Package names allowed to raise alerts through the [signal store](SIGNALS.md). Empty keeps the store closed. `homebridge-pagerduty` itself is not allowed |
+| `signals` | `{}` | Settings for each plugin that writes to the [signal store](SIGNALS.md), keyed by package name, with `@scope/name` stored as `@scope:name`. See [`signals` entries](#signals-entries) |
 | `options.deliveryFaultSensor` | `true` | Add the delivery sensor |
 | `options.deliveryFaultSensorName` | `PagerDuty Delivery` | The delivery sensor's name in HomeKit, up to 64 characters |
 | `options.dryRun` | `false` | Log each event that would be sent and send nothing. Accepted state is kept in memory only |
@@ -143,21 +143,43 @@ Files written: everything goes in one `homebridge-pagerduty` directory inside th
 | Field | Required | Description |
 | --- | --- | --- |
 | `id` | ✓ | Stable identifier: a lowercase letter, then up to 31 lowercase letters, digits or hyphens. Unique. Changing it creates a new alert and new switches |
-| `name` | ✓ | Display name, up to 64 characters |
-| `summary` | ✓ | The alert title in PagerDuty, 1–1024 characters |
+| `name` | ✓ | Accessory Prefix, up to 64 characters. Each level's switch is named with it and the severity, such as `Leak Critical`. Also labels the alert in the Homebridge log |
+| `summary` | ✓ | PagerDuty Message, 1–1024 characters. Sent when any of the alert's switches turns on, with that switch's severity |
 | `levels` | ✓ | 1–4 levels, each with a different `severity` |
 | `resolveAfterMinutes` | | Resolve automatically this many minutes after the last On, 0–10080. `0` (default) is never |
 | `bypassMaintenance` | | Page even while maintenance is on (default false) |
-| `signal` | | `<package>/<signal>`: the switch follows a signal that another plugin writes. The alert must have exactly one level, and the package must be in `signals.sources`. See [SIGNALS.md](SIGNALS.md#give-a-condition-its-own-switch) |
 
 Each level takes:
 
 | Field | Required | Description |
 | --- | --- | --- |
 | `severity` | ✓ | `info`, `warning`, `error` or `critical`. If the service uses alert severity to set urgency, `critical` and `error` are high urgency, and `warning` and `info` are low |
-| `name` | | The switch name. Defaults to the alert name for a single level, and to `<alert name> <Severity>` otherwise |
+
+Each level's switch is named `<prefix> <Severity>`, such as `Freezer Warning` and `Freezer Critical`.
 
 **Severity is part of a switch's identity.** Changing it creates a new switch and removes the old one, along with its automations.
+
+### `signals` entries
+
+The Homebridge UI fills these in under **Plugin Signals**. Each plugin entry takes:
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `allow` | `false` | Let this plugin page. Until it is `true`, the plugin's rows are ignored |
+| `signals` | `{}` | Settings for each of its signals, keyed by signal name |
+
+Each signal takes:
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `enabled` | `true` | Page for this signal |
+| `summary` | the plugin's text | PagerDuty Message, up to 1024 characters. Blank uses the plugin's text |
+| `severity` | `plugin` | `plugin` keeps the plugin's severity. `info`, `warning`, `error` or `critical` overrides it |
+| `bypassMaintenance` | `false` | Page even while maintenance is on |
+| `switch` | `false` | Add a HomeKit switch for this signal. Up to 20 signal switches |
+| `switchName` | the signal name in title case | The switch's name in HomeKit, up to 64 characters |
+
+A bad entry is skipped or set back to its default, with a `warn`. It never stops the plugin.
 
 ### A complete example
 
@@ -181,27 +203,27 @@ Each level takes:
       "name": "Freezer",
       "summary": "Freezer temperature is high",
       "levels": [
-        { "severity": "warning", "name": "Freezer Warm" },
-        { "severity": "critical", "name": "Freezer Hot" }
+        { "severity": "warning" },
+        { "severity": "critical" }
       ]
     },
     {
       "id": "garage-door",
-      "name": "Garage Door Open",
+      "name": "Garage Door",
       "summary": "Garage door left open",
       "levels": [{ "severity": "warning" }],
       "resolveAfterMinutes": 60
-    },
-    {
-      "id": "sump",
-      "name": "Sump",
-      "summary": "Sump level high",
-      "levels": [{ "severity": "error" }],
-      "signal": "homebridge-example/sump-high"
     }
   ],
   "maintenance": { "switch": true, "name": "PagerDuty Maintenance", "maxMinutes": 240 },
-  "signals": { "sources": ["homebridge-example"] },
+  "signals": {
+    "homebridge-example": {
+      "allow": true,
+      "signals": {
+        "sump-high": { "summary": "Sump level high", "severity": "error", "switch": true, "switchName": "Sump" }
+      }
+    }
+  },
   "options": {
     "deliveryFaultSensor": true,
     "deliveryFaultSensorName": "PagerDuty Delivery",
@@ -224,9 +246,9 @@ Each level takes:
 
 ## Accessory identity
 
-A switch's identity is its alert `id` and its severity. The maintenance switch and the delivery sensor each have a fixed identity, whatever they are named. A display name never enters identity, so renaming keeps the room and the automations. The startup report notes each rename, for example `Alert switch: leak "Water leak detected" (critical; renamed Water Leak to Leak)`.
+A switch's identity is its alert `id` and its severity. A signal switch's identity is the plugin's package name and the signal name. The maintenance switch and the delivery sensor each have a fixed identity, whatever they are named. A display name never enters identity, so renaming keeps the room and the automations. The startup report notes each rename, for example `Alert switch: leak "Water leak detected" (critical; renamed Water Leak Critical to Leak Critical)`.
 
-Cached accessories are adopted at startup, never recreated. Only removing an alert's `id` from the config removes its switches.
+Cached accessories are adopted at startup, never recreated. Only removing an alert's `id` from the config removes its switches. A signal switch is removed when its box is unchecked, its signal is muted, or its plugin is no longer allowed.
 
 Only one `PagerDuty` platform is supported per Homebridge. A second block in the same process logs an error and disables itself. Running the plugin in two separate child bridges is not supported, because both would share one state file.
 
@@ -234,12 +256,14 @@ Only one `PagerDuty` platform is supported per Homebridge. A second block in the
 
 | Line | Level | Meaning |
 | --- | --- | --- |
-| `Starting v1.1.0: region US, source homebridge, signal sources 2` | info | Startup has begun. `(dry run: nothing is sent)` follows the version in dry-run mode. The signal sources count appears when there are any |
-| `Alert switch: freezer "Freezer temperature is high" (warning, critical)` | info | One line for each alert at startup: its `id`, its PagerDuty title and the severity of each level. `; new` joins the brackets when its switches were added on this start (or `; new Freezer Hot` when only some were), and `; renamed Freezer Warm to Freezer Cold` when a switch name changed in the config |
-| `Signals from homebridge-example: flood, sump-high; followed: sump-high` | info | One line for each plugin in Signal Sources at startup, with the signal names it has written. `none written yet` means it has written nothing so far. `followed but not written: ...` names a **Follow Signal** value that the plugin has not written, which is often a typo |
+| `Starting v2.0.0: region US, source homebridge, plugins allowed 2` | info | Startup has begun. `(dry run: nothing is sent)` follows the version in dry-run mode. The count of allowed plugins appears when there are any |
+| `Alert switch: freezer "Freezer temperature is high" (warning, critical)` | info | One line for each alert at startup: its `id`, its PagerDuty message and the severity of each level. `; new` joins the brackets when its switches were added on this start (or `; new Freezer Critical` when only some were), and `; renamed Freezer Critical to Chest Freezer Critical` when the accessory prefix changed |
+| `Signals from homebridge-example: flood, sump-high; muted: flood` | info | One line for each plugin that writes signals or is allowed, with the signal names it has written. `none written yet` means it has written nothing so far. `not allowed, so nothing is paged` means you have not allowed it. `muted: ...` lists signals with Page for this signal turned off |
+| `Signal switch: Sump (new) for homebridge-example/sump-high` | info | A signal switch, at startup, with the signal it follows |
+| `Sump: switched on` | info | Someone turned a signal switch on or off in HomeKit. On pages with that signal's settings. Off resolves the alert, and it pages again the next time the plugin raises the signal |
 | `Maintenance switch: PagerDuty Maintenance; turns off after 240 min` | info | The maintenance switch, at startup. The delivery sensor gets a `Delivery sensor:` line. `(new)` follows the name when the accessory was added on this start, and `(renamed from ...)` when its name changed |
 | `Platform ready` | info | Startup finished and everything is running. It follows the `Diagnostics start` line when diagnostics are on. If this line is missing, look for an `error` above it |
-| `Freezer Warm: switched on` | info | A level changed |
+| `Freezer Warning: switched on` | info | A switch changed |
 | `Freezer: trigger sent (warning)` | info | PagerDuty accepted a trigger |
 | `Freezer: resolve sent` | info | PagerDuty accepted a resolve |
 | `Garage Door Open: resolve timer expired; switched off` | info | The resolve timer ran out |
@@ -258,8 +282,10 @@ Only one `PagerDuty` platform is supported per Homebridge. A second block in the
 | `state file was unreadable; moved aside and starting empty: ...` | warn | Followed by a resolve sweep |
 | `sending resolve for 4 alert(s) the lost state file may have left open` | warn | The resolve sweep |
 | `signal store unavailable (...); keeping the last rows read` | warn | A read error. Nothing is cleared |
-| `signal store: homebridge-example writes signals but is not in signals.sources; ignored` | info | A plugin writes signals but is not in Signal Sources. Add it to let it page |
-| `tightened /path/to/homebridge-pagerduty/signals.sqlite-wal to owner-only` | info | A store file had a looser mode |
+| `signal store: homebridge-example writes signals; allow it under Plugin Signals to page for it` | info | A plugin writes signals but is not allowed. Allow it to let it page |
+| `could not update the settings screen (...); Plugin Signals may be out of date` | warn | The settings screen file could not be written. Paging is not affected |
+| `at most 20 signal switches are created; skipped ...` | warn | More than 20 signals have Create HomeKit Switch checked. The named ones get no switch but still page |
+| `tightened /path/to/homebridge-pagerduty/signals-2026-10-24/signals.sqlite-wal to owner-only` | info | A store file had a looser mode |
 
 Names and values that come from config or from other plugins are escaped and length-capped before they reach the log.
 
@@ -274,7 +300,7 @@ Health: healthy | open 1 | pending 0 | held 0 | store ok | api p50 120ms p95 300
 - `open`: alerts that PagerDuty has accepted as open.
 - `pending`: alerts waiting to be sent.
 - `held`: alerts held by maintenance.
-- `store`: shown only when signal sources are set.
+- `store`: shown only when a plugin is allowed to page.
 - `api`: request latency over the last 200 requests, and requests and errors since the previous line.
 
 When health changes, the plugin logs a line such as `Health degraded: degraded [pagerDutyUnreachable]` at `warn`, or `Health recovered: healthy` at `info`. The reasons are `deliveryFault`, `pagerDutyUnreachable`, `eventRejected` and `signalStoreUnreadable`. A `Diagnostics start` and `Diagnostics stop` line include a summary of the configuration, with the integration key shown only as present or absent.
@@ -298,9 +324,10 @@ With `options.structuredLogs`, each report is also logged as one JSON line for l
 13. **No one was notified for a severity raise.** Either the incident was acknowledged, or both severities have the same urgency: `info` and `warning` are both low, and `error` and `critical` are both high.
 14. **`the integration key changed while ... were open`.** Resolve the named alerts in PagerDuty. The plugin cannot.
 15. **`saved state could not be loaded`.** The platform stopped rather than starting empty and losing track of open alerts. Check the permissions on the `homebridge-pagerduty` directory and the `state.json` inside it.
-16. **A plugin writes signals but nothing pages.** Add its package name to `signals.sources`. The log names any plugin that writes signals but is not listed.
-17. **`ExperimentalWarning: SQLite is an experimental feature`.** Node 22 prints this once when the signal store opens. It is harmless.
-18. **`a second PagerDuty platform is configured`.** Remove the extra `PagerDuty` block from `config.json`.
+16. **A plugin writes signals but nothing pages.** Check **Allow this plugin to page** for it under Plugin Signals, and check that its signals have Page for this signal turned on. The log names any plugin that writes signals but is not allowed.
+17. **A plugin does not appear under Plugin Signals.** It appears only after it has written to the store and this plugin has restarted. Turn on PagerDuty support in the other plugin, restart Homebridge, then reopen the settings.
+18. **`ExperimentalWarning: SQLite is an experimental feature`.** Node 22 prints this once when the signal store opens. It is harmless.
+19. **`a second PagerDuty platform is configured`.** Remove the extra `PagerDuty` block from `config.json`.
 
 To check the whole path from a terminal, without Homebridge, see [`scripts/README.md`](../scripts/README.md).
 
@@ -308,7 +335,7 @@ To check the whole path from a terminal, without Homebridge, see [`scripts/READM
 
 The integration key lives in the Homebridge config file, like every Homebridge credential. It is never written to the log, the diagnostics output or an accessory's cache, and only its SHA-256 fingerprint is saved in the state file. PagerDuty's error responses are redacted before they are logged. The only network destination is the PagerDuty Events host for your region, over HTTPS, with redirects refused.
 
-Signal Sources is not authentication. See [SIGNALS.md](SIGNALS.md#security) and [SECURITY.md](../SECURITY.md).
+Allowing a plugin is not authentication. See [SIGNALS.md](SIGNALS.md#security) and [SECURITY.md](../SECURITY.md).
 
 ## Quality
 
