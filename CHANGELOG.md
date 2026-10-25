@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/tbaur/homebridge-pagerduty/compare/v2.0.0...v2.0.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* **config:** stop the blank alert from saving an invalid entry ([#17](https://github.com/tbaur/homebridge-pagerduty/issues/17)) ([3133a36](https://github.com/tbaur/homebridge-pagerduty/commit/3133a364756ec2b07a98ad4439e7a3d696ea87d7))
+
 ## [2.0.0](https://github.com/tbaur/homebridge-pagerduty/compare/v1.1.2...v2.0.0) (2026-10-25)
 
 
