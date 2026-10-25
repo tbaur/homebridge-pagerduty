@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/tbaur/homebridge-pagerduty/compare/v2.0.1...v2.0.2) (2026-10-25)
+
+
+### Bug Fixes
+
+* correct dry-run recovery, timers, and alert logging ([2ff1591](https://github.com/tbaur/homebridge-pagerduty/commit/2ff1591972ebd854677fc35b7c810b0f34b78696))
+
 ## [2.0.1](https://github.com/tbaur/homebridge-pagerduty/compare/v2.0.0...v2.0.1) (2026-10-25)
 
 
