@@ -22,6 +22,17 @@
 
 The [detailed documentation](docs/README-DETAILED.md) describes every accessory, setting and log line.
 
+## Integrated plugins
+
+- [homebridge-myleviton](https://github.com/tbaur/homebridge-myleviton)
+- [homebridge-navilink](https://github.com/tbaur/homebridge-navilink)
+- [homebridge-myalarmcom](https://github.com/tbaur/homebridge-myalarmcom)
+- [homebridge-mynest](https://github.com/tbaur/homebridge-mynest)
+- [homebridge-myresideo](https://github.com/tbaur/homebridge-myresideo)
+- [homebridge-concert](https://github.com/tbaur/homebridge-concert)
+
+If you have integrated another plugin, [let me know](https://github.com/tbaur/homebridge-pagerduty/issues) and I will add it to this list.
+
 ## Quick Start
 
 ### 1. Install
