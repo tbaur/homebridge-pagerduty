@@ -22,7 +22,9 @@
 
 The [detailed documentation](docs/README-DETAILED.md) describes every accessory, setting and log line.
 
-## Integrated plugins
+## Integrated Plugins with Signal
+
+These plugins write to the [signal store](docs/SIGNALS.md). Each one pages only after you allow it. No HomeKit automation rules are required.
 
 - [homebridge-myleviton](https://github.com/tbaur/homebridge-myleviton)
 - [homebridge-navilink](https://github.com/tbaur/homebridge-navilink)
