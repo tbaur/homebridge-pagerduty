@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/tbaur/homebridge-pagerduty/compare/v1.1.2...v2.0.0) (2026-10-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* signals.sources, the alert signal field and level names are removed. Allow each plugin under Plugin Signals instead. Plugins that write signals must copy the new module from docs/SIGNALS-AGENT.md, which writes to the signals-2026-10-24 directory.
+
+### Features
+
+* let other plugins page through Plugin Signals settings ([#15](https://github.com/tbaur/homebridge-pagerduty/issues/15)) ([ad7d0bc](https://github.com/tbaur/homebridge-pagerduty/commit/ad7d0bcf2b66b52474647960ca8e7a8eb995793b))
+
 ## [1.1.2](https://github.com/tbaur/homebridge-pagerduty/compare/v1.1.1...v1.1.2) (2026-10-24)
 
 
