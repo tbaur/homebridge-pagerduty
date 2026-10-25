@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/tbaur/homebridge-pagerduty/compare/v2.0.2...v2.1.0) (2026-10-25)
+
+
+### Documentation
+
+* add the verified by Homebridge badge ([e26ecc3](https://github.com/tbaur/homebridge-pagerduty/commit/e26ecc35ab43b1dcfa55fa63ca0b758b7f53ce82))
+
 ## [2.0.2](https://github.com/tbaur/homebridge-pagerduty/compare/v2.0.1...v2.0.2) (2026-10-25)
 
 
