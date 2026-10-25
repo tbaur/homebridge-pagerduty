@@ -15,7 +15,7 @@
 import { type JsonPost } from './delivery/http';
 import { type PollResult } from './signals/reader';
 import { StateStore } from './state/store';
-import type { CatalogEntry, DeliveryGauges, PluginLogger, ResolvedConfig, Severity, SignalRef } from './types';
+import type { CatalogEntry, DeliveryFaultReport, DeliveryGauges, PluginLogger, ResolvedConfig, Severity, SignalRef } from './types';
 import type { InterruptibleSleep } from './utils/timing';
 /** The reader surface the controller uses. A stand-in in tests. */
 export interface SignalReaderLike {
@@ -59,6 +59,7 @@ export declare class AlertController {
     private state;
     private plan;
     private fault;
+    private faultReport;
     private reader;
     private storeUnreadableSince;
     private catalog;
@@ -90,6 +91,8 @@ export declare class AlertController {
     /** A signal switch write. Pages or resolves with the signal's settings. */
     setSignalSwitch(ref: SignalRef, on: boolean): void;
     isDeliveryFault(): boolean;
+    /** `rejected` when the only problem is a refused event. */
+    deliveryFaultReport(): DeliveryFaultReport;
     /** Live counts for diagnostics. */
     gauges(): DeliveryGauges;
     private kick;
@@ -138,6 +141,14 @@ export declare class AlertController {
     /** Drop switch and timer state for alerts removed from config. Their delivered records stay, so they are resolved. */
     private forgetRemovedAlerts;
     private labelFor;
+    /**
+     * Keep a corrupt-file sweep's delivered records on a dry-run save.
+     *
+     * The unreadable file has already been moved aside. Without this, the dry
+     * run would write an empty delivered map and the next real start would
+     * never send those resolves.
+     */
+    private retainSweep;
     private persist;
     private requireState;
 }

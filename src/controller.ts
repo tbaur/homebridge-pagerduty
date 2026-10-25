@@ -44,13 +44,14 @@ import {
   applyMaintenance,
   applyRows,
   applySignalSwitchWrite,
+  cancelDisabledResolveTimers,
   expireResolveTimers,
   nextDeadline,
   pruneSignals,
 } from './state/mutations'
 import { reconcile, type Action, type Plan } from './state/reconcile'
 import { fingerprintRoutingKey, StateStore } from './state/store'
-import type { CatalogEntry, DeliveryGauges, PluginLogger, ResolvedAlert, ResolvedConfig, ResolvedSignal, Severity, SignalRef } from './types'
+import type { CatalogEntry, DeliveryFaultReport, DeliveryGauges, PluginLogger, ResolvedAlert, ResolvedConfig, ResolvedSignal, Severity, SignalRef } from './types'
 import { describeError } from './utils/errors'
 import { forLog } from './utils/redact'
 import type { InterruptibleSleep } from './utils/timing'
@@ -101,6 +102,7 @@ export class AlertController {
   private state: PersistedState | undefined
   private plan: Plan = EMPTY_PLAN
   private fault = false
+  private faultReport: DeliveryFaultReport = 'none'
   private reader: SignalReaderLike | undefined
   private storeUnreadableSince: number | null = null
   private catalog: CatalogEntry[] | undefined
@@ -164,6 +166,7 @@ export class AlertController {
     if (loaded.outcome === 'corrupt') {
       this.sweepClosedAlerts()
       this.pendingRowSweep = this.allowed.length > 0
+      this.retainSweep()
     }
     pruneSignals(state, { allowed: this.allowed, switches: new Set(this.switches.keys()) })
     this.forgetRemovedAlerts()
@@ -265,6 +268,11 @@ export class AlertController {
     return this.fault
   }
 
+  /** `rejected` when the only problem is a refused event. */
+  deliveryFaultReport(): DeliveryFaultReport {
+    return this.faultReport
+  }
+
   /** Live counts for diagnostics. */
   gauges(): DeliveryGauges {
     return {
@@ -353,6 +361,7 @@ export class AlertController {
         dedupKey: action.dedupKey,
         severity: action.severity,
         openedAt: existing?.dedupKey === action.dedupKey ? existing.openedAt : this.now(),
+        summary: action.summary,
       }
     } else if (state.delivered[action.key]?.dedupKey === action.dedupKey) {
       delete state.delivered[action.key]
@@ -390,6 +399,10 @@ export class AlertController {
     const state = this.requireState()
     const now = this.now()
     let changed = false
+    for (const alert of cancelDisabledResolveTimers(state, this.config.alerts)) {
+      this.log.info(`${forLog(alert.name)}: resolve timer cancelled; resolveAfterMinutes is 0`)
+      changed = true
+    }
     for (const alert of expireResolveTimers(state, this.config.alerts, now)) {
       this.log.info(`${forLog(alert.name)}: resolve timer expired; switched off`)
       changed = true
@@ -424,15 +437,18 @@ export class AlertController {
   // --- Delivery sensor -------------------------------------------------------------
 
   private updateFault(): void {
-    const fault = this.health.isFault({
+    const report = faultReportFor(this.health.causes({
       plan: this.plan,
       now: this.now(),
       storeUnreadableSince: this.storeUnreadableSince,
-    })
-    if (fault !== this.fault) {
-      this.fault = fault
-      this.notify()
+    }))
+    const fault = report !== 'none'
+    if (fault === this.fault && report === this.faultReport) {
+      return
     }
+    this.fault = fault
+    this.faultReport = report
+    this.notify()
   }
 
   private notify(): void {
@@ -546,11 +562,14 @@ export class AlertController {
     })
     const swept = this.pendingRowSweep && this.sweepClosedRows()
     this.pendingRowSweep = false
+    if (swept) {
+      this.retainSweep()
+    }
+    // A summary-only edit is dirty without counting as a row change, so the
+    // switch stays put and the open alert still gets the new title.
     if (applied.dirty || swept) {
       this.persist()
       this.scheduleDeadline()
-    }
-    if (applied.changed.length > 0 || swept) {
       this.kick()
     }
   }
@@ -650,6 +669,19 @@ export class AlertController {
     return alert?.name ?? targetKey.replace(/^(?:alert|signal):/, '')
   }
 
+  /**
+   * Keep a corrupt-file sweep's delivered records on a dry-run save.
+   *
+   * The unreadable file has already been moved aside. Without this, the dry
+   * run would write an empty delivered map and the next real start would
+   * never send those resolves.
+   */
+  private retainSweep(): void {
+    if (this.config.options.dryRun) {
+      this.store.retainDelivered(this.requireState().delivered)
+    }
+  }
+
   private persist(): void {
     void this.store.save(this.requireState())
   }
@@ -664,4 +696,12 @@ export class AlertController {
 
 function levelName(alert: ResolvedAlert, severity: Severity): string {
   return alert.levels.find((level) => level.severity === severity)?.name ?? alert.name
+}
+
+/** A lone rejection is not an outage. A stall or an unreadable store is. */
+function faultReportFor(causes: readonly string[]): DeliveryFaultReport {
+  if (causes.length === 0) {
+    return 'none'
+  }
+  return causes.length === 1 && causes[0] === 'rejected' ? 'rejected' : 'outage'
 }

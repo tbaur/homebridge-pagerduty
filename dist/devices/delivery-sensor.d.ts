@@ -15,10 +15,12 @@ import type { AccessoryInit } from './host';
 /** PagerDuty delivery health, as a HomeKit contact sensor. */
 export declare class DeliverySensor extends BaseAccessory {
     private readonly service;
-    /** The state last logged, so a standing fault is reported once. */
-    private lastFault;
+    /** The line last logged, so a standing fault is reported once and a new cause is reported when it changes. */
+    private lastLine;
     constructor(init: AccessoryInit);
     protected publishState(): void;
+    /** A lone rejection is one refused page. Anything else means sending has stopped. */
+    private openLine;
     /** "Detected" is HomeKit's word for a closed contact, the resting state. */
     private stateFor;
 }

@@ -46,7 +46,7 @@ Model `Maintenance Switch`. Added when `maintenance.switch` is true, and named `
 
 ### Delivery sensor
 
-Model `Delivery Sensor`. A `ContactSensor`, added unless `options.deliveryFaultSensor` is false, and named `PagerDuty Delivery` unless `options.deliveryFaultSensorName` says otherwise. **Open means pages are not going out.** Create a Home app notification for it.
+Model `Delivery Sensor`. A `ContactSensor`, added unless `options.deliveryFaultSensor` is false, and named `PagerDuty Delivery` unless `options.deliveryFaultSensorName` says otherwise. **Open means a page is not going out.** A rejected event opens it while other alerts still send, and the log says so. A page that stays unsent, or a signal store that stays unreadable, opens it with `pages are not going out`. Create a Home app notification for it.
 
 It opens when any of these is true, and closes when none is:
 
@@ -64,7 +64,7 @@ An alert has a stable `id`, a summary and one or more levels. Each level has a s
 
 - **Open:** an alert is open while any of its levels is on.
 - **Severity:** the highest severity among the levels that are on.
-- **Trigger:** sent when the alert should be open and either it is not open in PagerDuty, or its severity went up.
+- **Trigger:** sent when the alert should be open and it is not open in PagerDuty, its severity went up, or its message changed while the severity stayed the same. A message recorded before this plugin stored summaries is left as it is, so an upgrade does not re-page every open alert.
 - **Resolve:** sent when no level is on and the alert is open in PagerDuty.
 - **Lowering:** turning off a higher level while a lower one stays on sends nothing. PagerDuty does not lower an alert's severity, so the plugin does not try.
 
@@ -78,13 +78,13 @@ A repeat On does restart the alert's resolve timer, if it has one.
 
 ### Resolve timer
 
-`resolveAfterMinutes` on an alert, `0` for none. The timer starts when any level turns on and restarts on every On write. When it runs out, every level turns off and the alert resolves. Turning all levels off cancels it. The deadline is saved as a time of day, so it survives a restart, and a deadline that passed while Homebridge was down fires at startup.
+`resolveAfterMinutes` on an alert, `0` for none. The timer starts when any level turns on and restarts on every On write. When it runs out, every level turns off and the alert resolves. Turning all levels off cancels it. Setting it back to `0` cancels a timer that is already running, and the switches stay as they are. The deadline is saved as a time of day, so it survives a restart, and a deadline that passed while Homebridge was down fires at startup.
 
 ### Maintenance
 
 While the maintenance switch is on:
 
-- New triggers and severity raises are held.
+- New triggers, severity raises and summary updates are held.
 - Resolves are always sent.
 - Alerts with `bypassMaintenance: true` are not held.
 - Signals from other plugins are held too, unless **Page During Maintenance** is checked for that signal.
@@ -134,7 +134,7 @@ Files written: everything goes in one `homebridge-pagerduty` directory inside th
 | `signals` | `{}` | Settings for each plugin that writes to the [signal store](SIGNALS.md), keyed by package name, with `@scope/name` stored as `@scope:name`. See [`signals` entries](#signals-entries) |
 | `options.deliveryFaultSensor` | `true` | Add the delivery sensor |
 | `options.deliveryFaultSensorName` | `PagerDuty Delivery` | The delivery sensor's name in HomeKit, up to 64 characters |
-| `options.dryRun` | `false` | Log each event that would be sent and send nothing. Accepted state is kept in memory only |
+| `options.dryRun` | `false` | Log each event that would be sent and send nothing. Accepted state and the key fingerprint stay as they were loaded. After a corrupt state file, the resolves that sweep would send are kept for the next real start |
 | `options.diagnosticsInterval` | `0` | Seconds between health lines. `0` is off; 1–29 becomes 30; the maximum is 3600 |
 | `options.structuredLogs` | `false` | With diagnostics, also log each report as one JSON line |
 
@@ -246,7 +246,7 @@ A bad entry is skipped or set back to its default, with a `warn`. It never stops
 
 ## Accessory identity
 
-A switch's identity is its alert `id` and its severity. A signal switch's identity is the plugin's package name and the signal name. The maintenance switch and the delivery sensor each have a fixed identity, whatever they are named. A display name never enters identity, so renaming keeps the room and the automations. The startup report notes each rename, for example `Alert switch: leak "Water leak detected" (critical; renamed Water Leak Critical to Leak Critical)`.
+A switch's identity is its alert `id` and its severity. A signal switch's identity is the plugin's package name and the signal name. The maintenance switch and the delivery sensor each have a fixed identity, whatever they are named. A display name never enters identity, so renaming keeps the room and the automations. The startup report notes each rename, for example `Alert switch: leak (critical; renamed Water Leak Critical to Leak Critical)`.
 
 Cached accessories are adopted at startup, never recreated. Only removing an alert's `id` from the config removes its switches. A signal switch is removed when its box is unchecked, its signal is muted, or its plugin is no longer allowed.
 
@@ -257,7 +257,7 @@ Only one `PagerDuty` platform is supported per Homebridge. A second block in the
 | Line | Level | Meaning |
 | --- | --- | --- |
 | `Starting v2.0.0: region US, source homebridge, plugins allowed 2` | info | Startup has begun. `(dry run: nothing is sent)` follows the version in dry-run mode. The count of allowed plugins appears when there are any |
-| `Alert switch: freezer "Freezer temperature is high" (warning, critical)` | info | One line for each alert at startup: its `id`, its PagerDuty message and the severity of each level. `; new` joins the brackets when its switches were added on this start (or `; new Freezer Critical` when only some were), and `; renamed Freezer Critical to Chest Freezer Critical` when the accessory prefix changed |
+| `Alert switch: freezer (warning, critical)` | info | One line for each alert at startup: its `id` and the severity of each level. The PagerDuty message is not logged. `; new` joins the brackets when its switches were added on this start (or `; new Freezer Critical` when only some were), and `; renamed Freezer Critical to Chest Freezer Critical` when the accessory prefix changed |
 | `Signals from homebridge-example: flood, sump-high; muted: flood` | info | One line for each plugin that writes signals or is allowed, with the signal names it has written. `none written yet` means it has written nothing so far. `not allowed, so nothing is paged` means you have not allowed it. `muted: ...` lists signals with Page for this signal turned off |
 | `Signal switch: Sump (new) for homebridge-example/sump-high` | info | A signal switch, at startup, with the signal it follows |
 | `Sump: switched on` | info | Someone turned a signal switch on or off in HomeKit. On pages with that signal's settings. Off resolves the alert, and it pages again the next time the plugin raises the signal |
@@ -267,6 +267,7 @@ Only one `PagerDuty` platform is supported per Homebridge. A second block in the
 | `Freezer: trigger sent (warning)` | info | PagerDuty accepted a trigger |
 | `Freezer: resolve sent` | info | PagerDuty accepted a resolve |
 | `Garage Door Open: resolve timer expired; switched off` | info | The resolve timer ran out |
+| `Garage Door Open: resolve timer cancelled; resolveAfterMinutes is 0` | info | The timer was turned off in config while one was still running. The switches stay as they are |
 | `maintenance on: new pages are held for up to 240 min; resolves still go out` | info | Maintenance started |
 | `maintenance off: sending anything still active` | info | Maintenance ended |
 | `maintenance turned itself off after 240 min; paging is back on` | warn | `maintenance.maxMinutes` ran out |
@@ -275,7 +276,8 @@ Only one `PagerDuty` platform is supported per Homebridge. A second block in the
 | `PagerDuty recovered after 3 min` | info | Answering again. May add how many alerts opened and closed meanwhile |
 | `Leak: PagerDuty rejected the trigger: ... Not retried until the alert changes` | warn | PagerDuty refused the event |
 | `PagerDuty answered 200 rather than 202; treated as accepted` | warn | An undocumented success status |
-| `pages are not going out; delivery sensor open` | warn | The delivery sensor opened |
+| `PagerDuty rejected a page; delivery sensor open. Other pages still send` | warn | The delivery sensor opened because one event was rejected. Other alerts still send |
+| `pages are not going out; delivery sensor open` | warn | The delivery sensor opened because a page is stuck or the signal store is unreadable |
 | `pages are going out again; delivery sensor closed` | info | It closed |
 | `alert garage-door is held until fixed (nothing is sent or removed): ...` | warn | An invalid alert entry |
 | `the integration key changed while 1 alert(s) were open: ...` | warn | Resolve the named alerts in PagerDuty by hand |

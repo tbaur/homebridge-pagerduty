@@ -13,10 +13,12 @@
  * Rules, per target:
  * - Delivered but no longer desired open, or delivered under a different
  *   `dedup_key`: **resolve** on the recorded key. Never held.
- * - Desired open and either not delivered, or desired severity higher than
- *   delivered: **trigger**. Held by maintenance unless the alert bypasses it.
- * - Desired severity lower than delivered: nothing. PagerDuty never lowers an
- *   alert, and the plugin does not pretend it can.
+ * - Desired open and either not delivered, desired severity higher than
+ *   delivered, or the same severity with a new summary: **trigger**. Held by
+ *   maintenance unless the alert bypasses it. A delivered record with no
+ *   summary (written before summaries were stored) is not a summary change.
+ * - Desired severity lower than delivered: nothing, including a new summary.
+ *   PagerDuty never lowers an alert, and the plugin does not pretend it can.
  * - A held (invalid) config entry: nothing, in either direction.
  * - An action whose hash matches an outstanding rejection: not resent.
  */

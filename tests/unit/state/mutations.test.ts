@@ -13,6 +13,7 @@ import {
   applyLevelWrite,
   applyMaintenance,
   applyRows,
+  cancelDisabledResolveTimers,
   expireResolveTimers,
   isAnyLevelOn,
   applySignalSwitchWrite,
@@ -102,6 +103,27 @@ describe('applyMaintenance', () => {
     applyMaintenance(state, { on: false, at: 1, maxMinutes: 15 })
 
     expect(state.maintenance).toEqual({ on: false, since: null, until: null })
+  })
+})
+
+describe('cancelDisabledResolveTimers', () => {
+  it('clears an armed timer when the alert is set to never resolve, and leaves the switch on', () => {
+    const state = emptyState()
+    applyLevelWrite(state, alert({ resolveAfterMinutes: 30 }), { severity: 'critical', on: true, at: 0 })
+
+    expect(cancelDisabledResolveTimers(state, [alert()])).toEqual([alert()])
+    expect(state.alerts.leak!.resolveAt).toBeNull()
+    expect(state.levels['leak:critical']!.on).toBe(true)
+    expect(cancelDisabledResolveTimers(state, [alert()])).toEqual([])
+  })
+
+  it('leaves a timer whose alert still has one', () => {
+    const timed = alert({ resolveAfterMinutes: 30 })
+    const state = emptyState()
+    applyLevelWrite(state, timed, { severity: 'critical', on: true, at: 0 })
+
+    expect(cancelDisabledResolveTimers(state, [timed])).toEqual([])
+    expect(state.alerts.leak!.resolveAt).toBe(30 * MINUTE)
   })
 })
 

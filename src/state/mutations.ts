@@ -97,6 +97,28 @@ export function applyMaintenance(
   return true
 }
 
+/**
+ * Drop a resolve timer whose alert is now set to never resolve.
+ *
+ * The deadline was saved when a level turned on. Setting
+ * `resolveAfterMinutes` to `0` means that deadline should not fire, and the
+ * switches stay as they are. Returns the alerts whose timers were cleared.
+ */
+export function cancelDisabledResolveTimers(
+  state: PersistedState,
+  alerts: readonly ResolvedAlert[],
+): ResolvedAlert[] {
+  const cancelled: ResolvedAlert[] = []
+  for (const alert of alerts) {
+    if (alert.resolveAfterMinutes > 0 || (state.alerts[alert.id]?.resolveAt ?? null) === null) {
+      continue
+    }
+    state.alerts[alert.id] = { resolveAt: null }
+    cancelled.push(alert)
+  }
+  return cancelled
+}
+
 /** The soonest resolve or maintenance deadline, or undefined when none is set. */
 export function nextDeadline(state: PersistedState, alerts: readonly ResolvedAlert[]): number | undefined {
   const deadlines: number[] = []
@@ -135,10 +157,12 @@ export interface RowsResult {
  * Fold a successful read of the signal store into state.
  *
  * A row changes only when `active` or `severity` changes; an `updated_at`
- * change alone is not a change. A changed row sets its signal's switch unless
- * a person set the switch after the row changed: the later change wins, by
- * when it happened, not by when it was read. A row that has gone counts as cleared,
- * but only after a read that is known to be complete.
+ * change alone is not a change. A summary change is dirty without being a
+ * row change, so the switch stays and the caller can send the new title.
+ * A changed row sets its signal's switch unless a person set the switch after
+ * the row changed: the later change wins, by when it happened, not by when it
+ * was read. A row that has gone counts as cleared, but only after a read that
+ * is known to be complete.
  */
 export function applyRows(state: PersistedState, update: RowsUpdate): RowsResult {
   const result: RowsResult = { changed: [], dirty: false }

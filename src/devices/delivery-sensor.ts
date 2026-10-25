@@ -20,8 +20,8 @@ import type { AccessoryInit } from './host'
 export class DeliverySensor extends BaseAccessory {
   private readonly service: Service
 
-  /** The state last logged, so a standing fault is reported once. */
-  private lastFault: boolean | undefined
+  /** The line last logged, so a standing fault is reported once and a new cause is reported when it changes. */
+  private lastLine: string | undefined
 
   constructor(init: AccessoryInit) {
     super(init)
@@ -39,16 +39,26 @@ export class DeliverySensor extends BaseAccessory {
   protected override publishState(): void {
     const fault = this.host.isDeliveryFault()
     this.publish(this.service, this.host.hap.Characteristic.ContactSensorState, this.stateFor(fault))
-    if (fault === this.lastFault) {
+    const line = fault ? this.openLine() : 'pages are going out again; delivery sensor closed'
+    if (!fault) {
+      if (this.lastLine !== undefined && this.lastLine !== line) {
+        this.host.log.info(line)
+      }
+      this.lastLine = line
       return
     }
-    const previous = this.lastFault
-    this.lastFault = fault
-    if (fault) {
-      this.host.log.warn('pages are not going out; delivery sensor open')
-    } else if (previous !== undefined) {
-      this.host.log.info('pages are going out again; delivery sensor closed')
+    if (line === this.lastLine) {
+      return
     }
+    this.lastLine = line
+    this.host.log.warn(line)
+  }
+
+  /** A lone rejection is one refused page. Anything else means sending has stopped. */
+  private openLine(): string {
+    return this.host.deliveryFaultReport() === 'rejected'
+      ? 'PagerDuty rejected a page; delivery sensor open. Other pages still send'
+      : 'pages are not going out; delivery sensor open'
   }
 
   /** "Detected" is HomeKit's word for a closed contact, the resting state. */

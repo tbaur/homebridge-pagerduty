@@ -214,7 +214,7 @@ describe('when configured', () => {
     const startup = log.calls.slice(log.calls.findIndex((line) => line.startsWith('info Starting v')))
     expect(startup).toEqual([
       expect.stringMatching(/^info Starting v\S+: region US, source homebridge$/),
-      'info Alert switch: leak "Water detected" (critical; new)',
+      'info Alert switch: leak (critical; new)',
       'info Maintenance switch: PagerDuty Maintenance (new); turns off after 240 min',
       'info Delivery sensor: PagerDuty Delivery (new)',
       'info Platform ready',
@@ -313,7 +313,7 @@ describe('when configured', () => {
     expect(fake.registered.map((accessory) => accessory.displayName)).toEqual(['PagerDuty Maintenance', 'PagerDuty Delivery'])
     expect(restored.displayNameUpdates).toEqual(['Zone One Leak Critical'])
     expect(restored.context.serialNumber).toBe('SERIAL-0001')
-    expect(log.calls).toContain('info Alert switch: leak "Water detected" (critical; renamed Old Name to Zone One Leak Critical)')
+    expect(log.calls).toContain('info Alert switch: leak (critical; renamed Old Name to Zone One Leak Critical)')
     expect(log.calls.filter((line) => line.includes('Old Name'))).toHaveLength(1)
     await fake.shutdown()
   })

@@ -50,7 +50,7 @@ A signal that an allowed plugin starts writing after you saved the settings page
 
 ### What happens once a plugin is allowed
 
-- While a signal is active, its PagerDuty alert is open. When it clears, the alert resolves.
+- While a signal is active, its PagerDuty alert is open. When it clears, the alert resolves. A new summary or severity while it stays active updates that alert. A write that changes only `updated_at` does not.
 - While the maintenance switch is on, new pages are held unless the signal has Page During Maintenance. If the signal is still active when maintenance ends, the page is sent then.
 - If you turn off Page for this signal, or uncheck Allow this plugin to page, anything it had open resolves.
 
@@ -150,7 +150,7 @@ What your plugin does:
 2. **Open the store once and keep the connection.**
 3. **Write only rows whose `plugin` is your own package name.**
 4. **At startup, write the current state of every signal you own,** whether it is active or not. That clears any condition that ended while Homebridge was down.
-5. **When a condition changes, insert or update its row,** and set `updated_at` on every write.
+5. **When a condition changes, insert or update its row,** and set `updated_at` on every write. A new `summary` or `severity` while `active` stays `1` updates the open PagerDuty alert. A write that changes only `updated_at` does not.
 6. **To clear a condition, write `active = 0`.** Deleting the row also clears it.
 7. **Write when something changes, not on a timer,** and at most once per second for each signal.
 

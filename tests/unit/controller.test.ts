@@ -162,6 +162,38 @@ describe('switches', () => {
     expect(h.log.lines('info')).toContain('Zone One Leak: resolve timer expired; switched off')
   })
 
+  it('cancels an armed resolve timer when resolveAfterMinutes is set to 0', async () => {
+    const h = start(resolvedConfig({ alerts: [alert({ resolveAfterMinutes: 1 })] }))
+    h.controller.setLevel('leak', 'critical', true)
+    await flush()
+
+    const next = await restart(h, resolvedConfig())
+    await flush()
+    jest.advanceTimersByTime(MINUTE)
+    await flush()
+
+    expect(next.controller.isLevelOn('leak', 'critical')).toBe(true)
+    expect(next.api.actions).toEqual(['trigger homebridge/leak critical'])
+    expect(next.log.lines('info')).toContain('Zone One Leak: resolve timer cancelled; resolveAfterMinutes is 0')
+    expect((await stateOnDisk(next)).alerts.leak?.resolveAt).toBeNull()
+  })
+
+  it('sends the new summary while the alert stays open', async () => {
+    const h = start()
+    h.controller.setLevel('leak', 'critical', true)
+    await flush()
+
+    const next = await restart(h, resolvedConfig({ alerts: [alert({ summary: 'Water is still there' })] }))
+    await flush()
+
+    expect(next.api.actions).toEqual(['trigger homebridge/leak critical', 'trigger homebridge/leak critical'])
+    const body = next.api.bodies[1]
+    expect(body?.event_action).toBe('trigger')
+    if (body?.event_action === 'trigger') {
+      expect(body.payload.summary).toBe('Water is still there')
+    }
+  })
+
   it('tells listeners about changes, and survives one that throws', async () => {
     const h = start()
     const seen: number[] = []
@@ -418,6 +450,52 @@ describe('dry run', () => {
     ]))
     expect((await stateOnDisk(h)).delivered).toEqual({})
   })
+
+  it('leaves a key change for the next real start', async () => {
+    const first = start()
+    first.controller.setLevel('leak', 'critical', true)
+    await flush()
+    const before = await stateOnDisk(first)
+
+    const dry = await restart(first, resolvedConfig({
+      routingKey: OTHER_ROUTING_KEY,
+      options: { ...resolvedConfig().options, dryRun: true },
+    }))
+    await flush()
+
+    const saved = await stateOnDisk(dry)
+    expect(dry.api.bodies).toHaveLength(1)
+    expect(dry.log.lines('info')).toEqual(expect.arrayContaining([
+      'dry run: would send trigger (critical) for Zone One Leak as homebridge/leak',
+    ]))
+    expect(saved.routingKeyFingerprint).toBe(before.routingKeyFingerprint)
+    expect(saved.delivered['alert:leak']?.dedupKey).toBe('homebridge/leak')
+
+    const real = await restart(dry, resolvedConfig({ routingKey: OTHER_ROUTING_KEY }))
+    await flush()
+
+    expect(real.api.actions).toEqual(['trigger homebridge/leak critical', 'trigger homebridge/leak critical'])
+    expect(real.api.bodies[1]!.routing_key).toBe(OTHER_ROUTING_KEY)
+    expect(real.log.lines('warn')[0]).toContain('the integration key changed while 1 alert(s) were open')
+  })
+
+  it('keeps a corrupt-file resolve sweep for the next real start', async () => {
+    writeFileSync(join(dir, STATE_FILE), '{ torn')
+    const base = resolvedConfig()
+    const dry = start(resolvedConfig({ options: { ...base.options, dryRun: true } }))
+    await flush()
+
+    expect(dry.api.bodies).toEqual([])
+    expect(dry.log.lines('info')).toEqual(expect.arrayContaining([
+      'dry run: would send resolve for Zone One Leak as homebridge/leak',
+    ]))
+    expect((await stateOnDisk(dry)).delivered['alert:leak']?.dedupKey).toBe('homebridge/leak')
+
+    const real = await restart(dry, resolvedConfig())
+    await flush()
+
+    expect(real.api.actions).toEqual(['resolve homebridge/leak'])
+  })
 })
 
 describe('the signal store', () => {
@@ -659,7 +737,7 @@ describe('the signal store', () => {
     expect(h.api.actions).toEqual(['resolve homebridge/homebridge-example/door'])
   })
 
-  it('persists a summary-only change without sending anything', async () => {
+  it('sends an updated trigger when only the summary changes', async () => {
     const h = start(resolvedConfig({ alerts: [], signalPlugins: PLUGINS }), {
       createReader: scriptedReader([rows([row()]), rows([row({ summary: 'Still open', updatedAt: 2 })])]),
     })
@@ -667,7 +745,32 @@ describe('the signal store', () => {
     jest.advanceTimersByTime(2_000)
     await flush()
 
-    expect(h.api.bodies).toHaveLength(1)
+    expect(h.api.actions).toEqual([
+      'trigger homebridge/homebridge-example/door warning',
+      'trigger homebridge/homebridge-example/door warning',
+    ])
+    const body = h.api.bodies[1]
+    expect(body?.event_action).toBe('trigger')
+    if (body?.event_action === 'trigger') {
+      expect(body.payload.summary).toBe('Still open')
+    }
     expect((await stateOnDisk(h)).rowsSeen['homebridge-example/door']!.summary).toBe('Still open')
+  })
+
+  it('keeps a configured title when only the plugin text changes', async () => {
+    const settings = signal({ signal: 'door', summary: 'Zone Two door open' })
+    const h = start(resolvedConfig({ alerts: [], signalPlugins: [allowedPlugin('homebridge-example', [settings])] }), {
+      createReader: scriptedReader([rows([row()]), rows([row({ summary: 'Still open', updatedAt: 2 })])]),
+    })
+    await flush()
+    jest.advanceTimersByTime(2_000)
+    await flush()
+
+    expect(h.api.bodies).toHaveLength(1)
+    const body = h.api.bodies[0]
+    expect(body?.event_action).toBe('trigger')
+    if (body?.event_action === 'trigger') {
+      expect(body.payload.summary).toBe('Zone Two door open')
+    }
   })
 })

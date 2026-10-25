@@ -39,6 +39,7 @@ import { formatDiagnosticLine, formatHealthTransitionLine } from './diagnostics/
 import { PLATFORM_NAME, PLUGIN_NAME, readPluginVersion, UUID_PREFIX } from './settings'
 import type {
   AccessoryContext,
+  DeliveryFaultReport,
   DeliveryGauges,
   DiagnosticsSnapshot,
   PagerDutyPlatformConfig,
@@ -353,6 +354,10 @@ export class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
 
   isDeliveryFault(): boolean {
     return this.controller?.isDeliveryFault() ?? false
+  }
+
+  deliveryFaultReport(): DeliveryFaultReport {
+    return this.controller?.deliveryFaultReport() ?? 'none'
   }
 
   // --- Diagnostics -----------------------------------------------------------------

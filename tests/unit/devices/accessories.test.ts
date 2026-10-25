@@ -179,6 +179,21 @@ describe('DeliverySensor', () => {
     ])
   })
 
+  it('says that other pages still send when the only fault is a rejection', () => {
+    const host = fakeHost()
+    host.faultReport = 'rejected'
+    const init = accessoryInit(host, { displayName: 'PagerDuty Delivery', model: 'Delivery Sensor' })
+    const subject = new DeliverySensor(init)
+
+    host.fault = true
+    subject.refresh()
+    subject.refresh()
+
+    expect(host.log.calls).toEqual([
+      'warn PagerDuty rejected a page; delivery sensor open. Other pages still send',
+    ])
+  })
+
   it('answers No Response when unavailable', () => {
     const init = accessoryInit(fakeHost(), { unavailable: true })
     new DeliverySensor(init)

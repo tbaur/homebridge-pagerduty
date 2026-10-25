@@ -29,9 +29,9 @@ export interface StateStoreOptions {
     path: string;
     log: PluginLogger;
     /**
-     * False in `dryRun`: delivered and rejected records stay in memory, and the
-     * file keeps the ones it was loaded with, so a dry run never convinces a
-     * later real run that something was delivered.
+     * False in `dryRun`: delivered records, rejected records and the routing-key
+     * fingerprint stay as they were loaded. A dry run must not convince a later
+     * real run that an event was delivered, or that a key change was already handled.
      */
     persistDelivery: boolean;
     now?: () => number;
@@ -45,10 +45,23 @@ export declare class StateStore {
     private readonly now;
     private readonly write;
     private chain;
-    private diskDelivery;
+    /**
+     * What a dry-run save puts back. Delivery and the key fingerprint are loaded
+     * from disk. {@link retainDelivered} can add resolve-sweep records on top,
+     * because those are work the next real start still has to do.
+     */
+    private diskBook;
     constructor(options: StateStoreOptions);
     /** Load the state file. Throws {@link StateUnreadableError}; see the file header. */
     load(): LoadResult;
+    /**
+     * Remember delivered records that a dry-run save must keep.
+     *
+     * Merges. A later sweep adds its own records without dropping an earlier
+     * one, and a dry-run "delivery" deleting the in-memory copy does not remove
+     * them: nothing was sent.
+     */
+    retainDelivered(delivered: PersistedState['delivered']): void;
     /**
      * Persist a snapshot. Writes are serialized, so the file always ends up
      * holding the most recent one. Never rejects: a failed write is logged, and

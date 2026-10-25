@@ -13,7 +13,7 @@
 
 - **A switch for each alert.** An alert can have up to four severity levels, such as `Freezer Warning` and `Freezer Critical`. Each level is its own switch, named with the alert's prefix and the severity, and all of them send one PagerDuty message.
 - **Maintenance switch.** Holds new pages while someone works on the house, and sends them afterwards if the condition is still present. Resolves always go out.
-- **Delivery sensor.** A contact sensor that opens when pages are not going out, so the Home app can tell you that paging is broken.
+- **Delivery sensor.** A contact sensor that opens when a page is not going out, so the Home app can tell you. The log says whether one event was rejected or paging has stopped.
 - **Resolve timer,** for a condition with no natural end.
 - **Pages from other plugins.** Another Homebridge plugin can page directly, with no automation, through a small local [signal store](docs/SIGNALS.md). Each plugin appears in the settings by itself and pages only after you allow it. You can change each signal's PagerDuty message and severity, or give it a HomeKit switch.
 - **Restarts and outages lose nothing.** After an outage, the plugin sends the current state, not a backlog.
@@ -90,7 +90,7 @@ In the Home app, create an automation for each sensor: when the sensor detects t
 1. **The log says `trigger sent`, but nothing appears in PagerDuty.** Check that the key belongs to an **Events API v2** integration on the service that you are watching. PagerDuty accepts events sent to a deleted key without saying so.
 2. **`no routingKey set; PagerDuty is not started`.** Add the integration key in the plugin settings.
 3. **`platform disabled; cached accessories kept`.** The configuration could not be used, and the lines before it say why. Your switches show No Response until you fix it.
-4. **The delivery sensor is open.** Pages are not going out. The log says why.
+4. **The delivery sensor is open.** A page is not going out. The log says whether one event was rejected or paging has stopped.
 
 The [full troubleshooting list](docs/README-DETAILED.md#troubleshooting) covers more, including EU accounts and key changes.
 

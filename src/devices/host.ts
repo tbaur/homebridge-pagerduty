@@ -18,7 +18,7 @@
 
 import type { API, HAP, PlatformAccessory } from 'homebridge'
 
-import type { PluginLogger, Severity, SignalRef } from '../types'
+import type { DeliveryFaultReport, PluginLogger, Severity, SignalRef } from '../types'
 
 /** Everything an accessory needs from the platform that owns it. */
 export interface AccessoryHost {
@@ -38,8 +38,10 @@ export interface AccessoryHost {
   setSignalSwitch(signal: SignalRef, on: boolean): void
   isMaintenanceOn(): boolean
   setMaintenance(on: boolean): void
-  /** True when pages are not going out. */
+  /** True when a page is not going out. */
   isDeliveryFault(): boolean
+  /** Why {@link isDeliveryFault} is true, for the sensor's log line. */
+  deliveryFaultReport(): DeliveryFaultReport
 }
 
 /** What an accessory is handed when it is constructed. */

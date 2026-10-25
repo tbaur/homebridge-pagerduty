@@ -41,9 +41,9 @@ export interface StateStoreOptions {
   path: string
   log: PluginLogger
   /**
-   * False in `dryRun`: delivered and rejected records stay in memory, and the
-   * file keeps the ones it was loaded with, so a dry run never convinces a
-   * later real run that something was delivered.
+   * False in `dryRun`: delivered records, rejected records and the routing-key
+   * fingerprint stay as they were loaded. A dry run must not convince a later
+   * real run that an event was delivered, or that a key change was already handled.
    */
   persistDelivery: boolean
   now?: () => number
@@ -61,7 +61,16 @@ export class StateStore {
   private readonly now: () => number
   private readonly write: (path: string, value: unknown, mode: number) => Promise<void>
   private chain: Promise<void> = Promise.resolve()
-  private diskDelivery: Pick<PersistedState, 'delivered' | 'rejected'> = { delivered: {}, rejected: {} }
+  /**
+   * What a dry-run save puts back. Delivery and the key fingerprint are loaded
+   * from disk. {@link retainDelivered} can add resolve-sweep records on top,
+   * because those are work the next real start still has to do.
+   */
+  private diskBook: Pick<PersistedState, 'delivered' | 'rejected' | 'routingKeyFingerprint'> = {
+    delivered: {},
+    rejected: {},
+    routingKeyFingerprint: null,
+  }
 
   constructor(options: StateStoreOptions) {
     this.options = options
@@ -90,8 +99,23 @@ export class StateStore {
       this.moveAside()
       return { state: emptyState(), outcome: 'corrupt' }
     }
-    this.diskDelivery = { delivered: { ...state.delivered }, rejected: { ...state.rejected } }
+    this.diskBook = {
+      delivered: { ...state.delivered },
+      rejected: { ...state.rejected },
+      routingKeyFingerprint: state.routingKeyFingerprint,
+    }
     return { state, outcome: 'loaded' }
+  }
+
+  /**
+   * Remember delivered records that a dry-run save must keep.
+   *
+   * Merges. A later sweep adds its own records without dropping an earlier
+   * one, and a dry-run "delivery" deleting the in-memory copy does not remove
+   * them: nothing was sent.
+   */
+  retainDelivered(delivered: PersistedState['delivered']): void {
+    this.diskBook.delivered = { ...this.diskBook.delivered, ...structuredClone(delivered) }
   }
 
   /**
@@ -102,7 +126,7 @@ export class StateStore {
   save(state: PersistedState): Promise<void> {
     const snapshot: PersistedState = this.options.persistDelivery
       ? structuredClone(state)
-      : { ...structuredClone(state), ...structuredClone(this.diskDelivery) }
+      : { ...structuredClone(state), ...structuredClone(this.diskBook) }
     this.chain = this.chain
       .then(() => this.write(this.options.path, snapshot, PRIVATE_FILE_MODE))
       .catch((error: unknown) => {
@@ -175,7 +199,8 @@ export function parseState(raw: string): PersistedState | undefined {
     && everyValue(parsed.rowsSeen, (entry) => typeof entry.active === 'boolean'
       && isSeverity(entry.severity) && typeof entry.summary === 'string' && isTime(entry.changedAt))
     && everyValue(parsed.delivered, (entry) => typeof entry.dedupKey === 'string'
-      && isSeverity(entry.severity) && isTime(entry.openedAt))
+      && isSeverity(entry.severity) && isTime(entry.openedAt)
+      && (entry.summary === undefined || typeof entry.summary === 'string'))
     && everyValue(parsed.rejected, (entry) => typeof entry.desiredHash === 'string'
       && isTime(entry.at) && typeof entry.reason === 'string')
   return valid ? parsed as unknown as PersistedState : undefined

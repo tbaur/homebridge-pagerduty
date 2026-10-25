@@ -16,6 +16,7 @@ exports.applyLevelWrite = applyLevelWrite;
 exports.isAnyLevelOn = isAnyLevelOn;
 exports.expireResolveTimers = expireResolveTimers;
 exports.applyMaintenance = applyMaintenance;
+exports.cancelDisabledResolveTimers = cancelDisabledResolveTimers;
 exports.nextDeadline = nextDeadline;
 exports.applyRows = applyRows;
 exports.applySignalSwitchWrite = applySignalSwitchWrite;
@@ -89,6 +90,24 @@ function applyMaintenance(state, write) {
         : { on: false, since: null, until: null };
     return true;
 }
+/**
+ * Drop a resolve timer whose alert is now set to never resolve.
+ *
+ * The deadline was saved when a level turned on. Setting
+ * `resolveAfterMinutes` to `0` means that deadline should not fire, and the
+ * switches stay as they are. Returns the alerts whose timers were cleared.
+ */
+function cancelDisabledResolveTimers(state, alerts) {
+    const cancelled = [];
+    for (const alert of alerts) {
+        if (alert.resolveAfterMinutes > 0 || (state.alerts[alert.id]?.resolveAt ?? null) === null) {
+            continue;
+        }
+        state.alerts[alert.id] = { resolveAt: null };
+        cancelled.push(alert);
+    }
+    return cancelled;
+}
 /** The soonest resolve or maintenance deadline, or undefined when none is set. */
 function nextDeadline(state, alerts) {
     const deadlines = [];
@@ -107,10 +126,12 @@ function nextDeadline(state, alerts) {
  * Fold a successful read of the signal store into state.
  *
  * A row changes only when `active` or `severity` changes; an `updated_at`
- * change alone is not a change. A changed row sets its signal's switch unless
- * a person set the switch after the row changed: the later change wins, by
- * when it happened, not by when it was read. A row that has gone counts as cleared,
- * but only after a read that is known to be complete.
+ * change alone is not a change. A summary change is dirty without being a
+ * row change, so the switch stays and the caller can send the new title.
+ * A changed row sets its signal's switch unless a person set the switch after
+ * the row changed: the later change wins, by when it happened, not by when it
+ * was read. A row that has gone counts as cleared, but only after a read that
+ * is known to be complete.
  */
 function applyRows(state, update) {
     const result = { changed: [], dirty: false };

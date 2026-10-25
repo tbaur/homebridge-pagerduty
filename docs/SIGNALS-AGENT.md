@@ -96,7 +96,7 @@ Open the store once and keep the connection.
 ### Writing
 
 - At startup, write every signal the plugin owns, active or not. That clears any condition that ended while Homebridge was down.
-- When a condition changes, insert or update its row, and set `updated_at`.
+- When a condition changes, insert or update its row, and set `updated_at`. A new summary or severity while `active` stays `1` updates the open alert, unless the user set their own message. Changing only `updated_at` does not.
 - To clear a condition, write `active = 0`. Deleting the row also clears it.
 - When a condition goes away for good, for example a device removed from the config, write `active = 0` or delete its row.
 

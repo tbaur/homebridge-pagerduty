@@ -194,6 +194,13 @@ export interface CatalogEntry extends SignalRef {
     /** Untrusted text from the other plugin. Only ever used as a field's default value. */
     summary: string;
 }
+/**
+ * What the delivery sensor should say.
+ *
+ * `rejected` is one refused event, with other alerts still sending.
+ * `outage` is a stalled send or an unreadable signal store.
+ */
+export type DeliveryFaultReport = 'none' | 'rejected' | 'outage';
 /** Live gauges the diagnostics collector reads. */
 export interface DeliveryGauges {
     openAlerts: number;
