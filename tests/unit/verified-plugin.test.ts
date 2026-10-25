@@ -50,6 +50,7 @@ interface ConfigSchema {
 type LayoutItem = string | { key?: string; title?: string; items?: LayoutItem[]; condition?: { functionBody?: string } }
 
 /** The signature Config UI X gives a layout condition. */
+type LayoutCondition = (model: unknown, arrayIndices?: number[]) => boolean
 
 interface PackageManifest {
   name?: string
@@ -113,6 +114,24 @@ function layoutKeys(items: LayoutItem[], keys: string[] = []): string[] {
   return keys
 }
 
+function findLayoutItem(items: LayoutItem[], key: string): Exclude<LayoutItem, string> | undefined {
+  for (const item of items) {
+    if (typeof item === 'string') {
+      continue
+    }
+    const found = item.key === key ? item : findLayoutItem(item.items ?? [], key)
+    if (found !== undefined) {
+      return found
+    }
+  }
+  return undefined
+}
+
+function layoutCondition(key: string): LayoutCondition {
+  const functionBody = findLayoutItem(schema.layout ?? [], key)?.condition?.functionBody ?? ''
+  return new Function('model', 'arrayIndices', functionBody) as LayoutCondition
+}
+
 describe('config.schema.json', () => {
   it('declares the platform alias, singular, with no custom UI', () => {
     expect(schema.pluginAlias).toBe(settings.PLATFORM_NAME)
@@ -144,6 +163,16 @@ describe('config.schema.json', () => {
         expect([path, node.default]).toEqual([path, undefined])
       }
     })
+  })
+
+  it('shows no checkbox in the blank alert, because a checkbox writes false on render and saves an invalid alert', () => {
+    const showBypass = layoutCondition('alerts[].bypassMaintenance')
+    const maintenanceOn = { maintenance: { switch: true } }
+
+    expect(showBypass(maintenanceOn, [0])).toBe(false)
+    expect(showBypass({ ...maintenanceOn, alerts: [{}] }, [0])).toBe(false)
+    expect(showBypass({ ...maintenanceOn, alerts: [{ id: 'smoke' }] }, [0])).toBe(true)
+    expect(showBypass({ maintenance: { switch: false }, alerts: [{ id: 'smoke' }] }, [0])).toBe(false)
   })
 
   it('renders the routing key as a password with the validator\'s pattern', () => {

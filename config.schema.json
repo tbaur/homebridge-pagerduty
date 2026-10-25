@@ -290,7 +290,7 @@
                 {
                   "key": "alerts[].bypassMaintenance",
                   "condition": {
-                    "functionBody": "return model.maintenance?.switch === true;"
+                    "functionBody": "return model.maintenance?.switch === true && Boolean(model.alerts?.[arrayIndices?.[0]]?.id);"
                   }
                 }
               ]
