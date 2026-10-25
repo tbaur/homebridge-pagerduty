@@ -110,20 +110,28 @@ describe('StateStore', () => {
     expect(() => store.load()).toThrow('state directory could not be created')
   })
 
-  it('in a dry run, writes switch state but keeps the delivery records it loaded', async () => {
+  it('in a dry run, writes switch state but keeps the delivery records and key fingerprint it loaded', async () => {
     const real = new StateStore({ path, log: fakeLogger(), persistDelivery: true })
     await real.save(populated())
 
     const dry = new StateStore({ path, log: fakeLogger(), persistDelivery: false })
     const { state } = dry.load()
     state.levels['leak:critical'] = { on: false, changedAt: 9 }
+    state.routingKeyFingerprint = 'new-key'
     state.delivered = {}
     state.rejected = {}
+    dry.retainDelivered({
+      'alert:swept': { dedupKey: 'homebridge/swept', severity: 'info', openedAt: 8 },
+    })
     await dry.save(state)
 
     const written = JSON.parse(readFileSync(path, 'utf8')) as PersistedState
     expect(written.levels['leak:critical']).toEqual({ on: false, changedAt: 9 })
-    expect(written.delivered).toEqual(populated().delivered)
+    expect(written.routingKeyFingerprint).toBe('fp')
+    expect(written.delivered).toEqual({
+      ...populated().delivered,
+      'alert:swept': { dedupKey: 'homebridge/swept', severity: 'info', openedAt: 8 },
+    })
     expect(written.rejected).toEqual(populated().rejected)
   })
 
@@ -175,6 +183,9 @@ describe('parseState', () => {
     ['a bad row', (state) => { state.rowsSeen = { x: { active: true, severity: 'urgent', summary: 's', changedAt: 1 } } }],
     ['a bad signal switch', (state) => { state.switches = { x: { on: 'yes', changedAt: 1 } } }],
     ['a bad delivered record', (state) => { state.delivered = { x: { dedupKey: 1, severity: 'info', openedAt: 1 } } }],
+    ['a non-string delivered summary', (state) => {
+      state.delivered = { x: { dedupKey: 'k', severity: 'info', openedAt: 1, summary: 5 } }
+    }],
     ['a bad rejected record', (state) => { state.rejected = { x: { desiredHash: 'h', at: 1 } } }],
     ['an array where a record belongs', (state) => { state.levels = [] }],
   ])('rejects the whole file for %s', (_name, damage) => {

@@ -290,6 +290,9 @@ class PagerDutyPlatform {
     isDeliveryFault() {
         return this.controller?.isDeliveryFault() ?? false;
     }
+    deliveryFaultReport() {
+        return this.controller?.deliveryFaultReport() ?? 'none';
+    }
     // --- Diagnostics -----------------------------------------------------------------
     gauges() {
         return this.controller?.gauges() ?? {

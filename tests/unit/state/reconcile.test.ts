@@ -61,8 +61,16 @@ function summarize(plan: ReturnType<typeof reconcile>): string[] {
 describe('reconcile', () => {
   it.each<[string, Parameters<typeof run>[0], string[]]>([
     ['open and never delivered: trigger', { desired: [target()] }, ['trigger alert:leak critical']],
-    ['open and delivered at the same severity: nothing', {
+    ['open and delivered at the same severity, with no recorded summary: nothing', {
       desired: [target()], delivered: { 'alert:leak': delivered() },
+    }, []],
+    ['open at the same severity with a new summary: trigger', {
+      desired: [target({ summary: 'Still wet' })],
+      delivered: { 'alert:leak': { ...delivered(), summary: 'Water detected' } },
+    }, ['trigger alert:leak critical']],
+    ['open at a lower severity with a new summary: nothing', {
+      desired: [target({ severity: 'warning', summary: 'Still wet' })],
+      delivered: { 'alert:leak': { ...delivered(), summary: 'Water detected' } },
     }, []],
     ['open at a higher severity than delivered: trigger again', {
       desired: [target({ severity: 'critical' })], delivered: { 'alert:leak': delivered('warning') },

@@ -12,7 +12,7 @@ What the plugin does, and what it does not do.
 ## Per install
 
 - ✅ Maintenance switch that holds triggers, always sends resolves, and turns itself off
-- ✅ Delivery sensor that opens when pages are not going out
+- ✅ Delivery sensor that opens when a page is not going out. A rejection leaves other alerts sending; a stuck send or an unreadable store means paging has stopped
 - ✅ Signal store that other plugins write to. Each plugin appears in the settings by itself, and pages only once the user allows it
 - ✅ For each signal from another plugin: an editable PagerDuty message, a severity override, paging during maintenance, mute, and an optional HomeKit switch
 - ✅ A tested module and instructions that a plugin author or coding agent can use to add signal support
@@ -57,7 +57,7 @@ What the plugin does, and what it does not do.
 | Alert level | Switch | One per level of each alert |
 | Signal switch | Switch | One per signal with Create HomeKit Switch checked, up to 20 |
 | Maintenance | Switch | One, when `maintenance.switch` is true |
-| Delivery | ContactSensor, open means pages are not going out | One, unless `options.deliveryFaultSensor` is false |
+| Delivery | ContactSensor, open means a page is not going out | One, unless `options.deliveryFaultSensor` is false |
 
 ## PagerDuty surface
 

@@ -52,7 +52,19 @@ describe('DeliveryHealth', () => {
   })
 
   it('opens at once for an outstanding rejection', () => {
-    expect(new DeliveryHealth().isFault({ plan: plan({ rejected: ['a'] }), now: 0, storeUnreadableSince: null })).toBe(true)
+    const health = new DeliveryHealth()
+    const rejected = plan({ rejected: ['a'] })
+
+    expect(health.isFault({ plan: rejected, now: 0, storeUnreadableSince: null })).toBe(true)
+    expect(health.causes({ plan: rejected, now: 0, storeUnreadableSince: null })).toEqual(['rejected'])
+  })
+
+  it('names a stall as well when a rejection and a stuck send overlap', () => {
+    const health = new DeliveryHealth()
+    const both = plan({ rejected: ['a'], sendable: [action('b')] })
+    health.observe(both, 0)
+
+    expect(health.causes({ plan: both, now: 120_000, storeUnreadableSince: null })).toEqual(['rejected', 'stalled'])
   })
 
   it('opens once the signal store has been unreadable for five minutes', () => {

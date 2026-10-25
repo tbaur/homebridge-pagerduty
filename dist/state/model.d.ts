@@ -35,6 +35,11 @@ export interface DeliveredRecord {
     dedupKey: string;
     severity: Severity;
     openedAt: number;
+    /**
+     * The summary that was sent. Absent on a file written before summary updates
+     * were tracked, which must not by itself cause a new trigger.
+     */
+    summary?: string;
 }
 /** A state PagerDuty refused with a `4xx`. Not resent until the desired state differs. */
 export interface RejectedRecord {

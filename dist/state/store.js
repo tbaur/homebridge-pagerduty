@@ -40,7 +40,16 @@ class StateStore {
     now;
     write;
     chain = Promise.resolve();
-    diskDelivery = { delivered: {}, rejected: {} };
+    /**
+     * What a dry-run save puts back. Delivery and the key fingerprint are loaded
+     * from disk. {@link retainDelivered} can add resolve-sweep records on top,
+     * because those are work the next real start still has to do.
+     */
+    diskBook = {
+        delivered: {},
+        rejected: {},
+        routingKeyFingerprint: null,
+    };
     constructor(options) {
         this.options = options;
         this.now = options.now ?? Date.now;
@@ -69,8 +78,22 @@ class StateStore {
             this.moveAside();
             return { state: (0, model_1.emptyState)(), outcome: 'corrupt' };
         }
-        this.diskDelivery = { delivered: { ...state.delivered }, rejected: { ...state.rejected } };
+        this.diskBook = {
+            delivered: { ...state.delivered },
+            rejected: { ...state.rejected },
+            routingKeyFingerprint: state.routingKeyFingerprint,
+        };
         return { state, outcome: 'loaded' };
+    }
+    /**
+     * Remember delivered records that a dry-run save must keep.
+     *
+     * Merges. A later sweep adds its own records without dropping an earlier
+     * one, and a dry-run "delivery" deleting the in-memory copy does not remove
+     * them: nothing was sent.
+     */
+    retainDelivered(delivered) {
+        this.diskBook.delivered = { ...this.diskBook.delivered, ...structuredClone(delivered) };
     }
     /**
      * Persist a snapshot. Writes are serialized, so the file always ends up
@@ -80,7 +103,7 @@ class StateStore {
     save(state) {
         const snapshot = this.options.persistDelivery
             ? structuredClone(state)
-            : { ...structuredClone(state), ...structuredClone(this.diskDelivery) };
+            : { ...structuredClone(state), ...structuredClone(this.diskBook) };
         this.chain = this.chain
             .then(() => this.write(this.options.path, snapshot, settings_1.PRIVATE_FILE_MODE))
             .catch((error) => {
@@ -149,7 +172,8 @@ function parseState(raw) {
         && everyValue(parsed.rowsSeen, (entry) => typeof entry.active === 'boolean'
             && (0, types_1.isSeverity)(entry.severity) && typeof entry.summary === 'string' && isTime(entry.changedAt))
         && everyValue(parsed.delivered, (entry) => typeof entry.dedupKey === 'string'
-            && (0, types_1.isSeverity)(entry.severity) && isTime(entry.openedAt))
+            && (0, types_1.isSeverity)(entry.severity) && isTime(entry.openedAt)
+            && (entry.summary === undefined || typeof entry.summary === 'string'))
         && everyValue(parsed.rejected, (entry) => typeof entry.desiredHash === 'string'
             && isTime(entry.at) && typeof entry.reason === 'string');
     return valid ? parsed : undefined;

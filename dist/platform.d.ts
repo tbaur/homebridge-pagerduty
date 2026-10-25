@@ -22,7 +22,7 @@
  */
 import type { API, DynamicPlatformPlugin, Logging, PlatformAccessory, PlatformConfig } from 'homebridge';
 import { type AccessoryHost } from './devices';
-import type { Severity, SignalRef } from './types';
+import type { DeliveryFaultReport, Severity, SignalRef } from './types';
 /** Homebridge's dynamic platform for PagerDuty alerts. */
 export declare class PagerDutyPlatform implements DynamicPlatformPlugin, AccessoryHost {
     readonly api: API;
@@ -71,6 +71,7 @@ export declare class PagerDutyPlatform implements DynamicPlatformPlugin, Accesso
     isMaintenanceOn(): boolean;
     setMaintenance(on: boolean): void;
     isDeliveryFault(): boolean;
+    deliveryFaultReport(): DeliveryFaultReport;
     private gauges;
     private startDiagnostics;
     private stopDiagnostics;

@@ -28,7 +28,7 @@ function formatStartupReport(input) {
             ...newNotes(switches, changes),
             ...renameNotes(switches, changes),
         ];
-        lines.push(`Alert switch: ${alert.id} "${(0, redact_1.forLog)(alert.summary)}" (${notes.join('; ')})`);
+        lines.push(`Alert switch: ${alert.id} (${notes.join('; ')})`);
     }
     for (const id of config.heldAlertIds) {
         lines.push(`Alert switch: ${id} held until its entry is fixed; its switches show No Response`);

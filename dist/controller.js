@@ -53,6 +53,7 @@ class AlertController {
     state;
     plan = EMPTY_PLAN;
     fault = false;
+    faultReport = 'none';
     reader;
     storeUnreadableSince = null;
     catalog;
@@ -109,6 +110,7 @@ class AlertController {
         if (loaded.outcome === 'corrupt') {
             this.sweepClosedAlerts();
             this.pendingRowSweep = this.allowed.length > 0;
+            this.retainSweep();
         }
         (0, mutations_1.pruneSignals)(state, { allowed: this.allowed, switches: new Set(this.switches.keys()) });
         this.forgetRemovedAlerts();
@@ -199,6 +201,10 @@ class AlertController {
     isDeliveryFault() {
         return this.fault;
     }
+    /** `rejected` when the only problem is a refused event. */
+    deliveryFaultReport() {
+        return this.faultReport;
+    }
     /** Live counts for diagnostics. */
     gauges() {
         return {
@@ -281,6 +287,7 @@ class AlertController {
                 dedupKey: action.dedupKey,
                 severity: action.severity,
                 openedAt: existing?.dedupKey === action.dedupKey ? existing.openedAt : this.now(),
+                summary: action.summary,
             };
         }
         else if (state.delivered[action.key]?.dedupKey === action.dedupKey) {
@@ -315,6 +322,10 @@ class AlertController {
         const state = this.requireState();
         const now = this.now();
         let changed = false;
+        for (const alert of (0, mutations_1.cancelDisabledResolveTimers)(state, this.config.alerts)) {
+            this.log.info(`${(0, redact_1.forLog)(alert.name)}: resolve timer cancelled; resolveAfterMinutes is 0`);
+            changed = true;
+        }
         for (const alert of (0, mutations_1.expireResolveTimers)(state, this.config.alerts, now)) {
             this.log.info(`${(0, redact_1.forLog)(alert.name)}: resolve timer expired; switched off`);
             changed = true;
@@ -346,15 +357,18 @@ class AlertController {
     }
     // --- Delivery sensor -------------------------------------------------------------
     updateFault() {
-        const fault = this.health.isFault({
+        const report = faultReportFor(this.health.causes({
             plan: this.plan,
             now: this.now(),
             storeUnreadableSince: this.storeUnreadableSince,
-        });
-        if (fault !== this.fault) {
-            this.fault = fault;
-            this.notify();
+        }));
+        const fault = report !== 'none';
+        if (fault === this.fault && report === this.faultReport) {
+            return;
         }
+        this.fault = fault;
+        this.faultReport = report;
+        this.notify();
     }
     notify() {
         for (const listener of this.listeners) {
@@ -464,11 +478,14 @@ class AlertController {
         });
         const swept = this.pendingRowSweep && this.sweepClosedRows();
         this.pendingRowSweep = false;
+        if (swept) {
+            this.retainSweep();
+        }
+        // A summary-only edit is dirty without counting as a row change, so the
+        // switch stays put and the open alert still gets the new title.
         if (applied.dirty || swept) {
             this.persist();
             this.scheduleDeadline();
-        }
-        if (applied.changed.length > 0 || swept) {
             this.kick();
         }
     }
@@ -558,6 +575,18 @@ class AlertController {
         const alert = this.alertsById.get(targetKey.replace(/^alert:/, ''));
         return alert?.name ?? targetKey.replace(/^(?:alert|signal):/, '');
     }
+    /**
+     * Keep a corrupt-file sweep's delivered records on a dry-run save.
+     *
+     * The unreadable file has already been moved aside. Without this, the dry
+     * run would write an empty delivered map and the next real start would
+     * never send those resolves.
+     */
+    retainSweep() {
+        if (this.config.options.dryRun) {
+            this.store.retainDelivered(this.requireState().delivered);
+        }
+    }
     persist() {
         void this.store.save(this.requireState());
     }
@@ -571,4 +600,11 @@ class AlertController {
 exports.AlertController = AlertController;
 function levelName(alert, severity) {
     return alert.levels.find((level) => level.severity === severity)?.name ?? alert.name;
+}
+/** A lone rejection is not an outage. A stall or an unreadable store is. */
+function faultReportFor(causes) {
+    if (causes.length === 0) {
+        return 'none';
+    }
+    return causes.length === 1 && causes[0] === 'rejected' ? 'rejected' : 'outage';
 }

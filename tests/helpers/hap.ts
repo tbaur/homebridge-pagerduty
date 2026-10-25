@@ -15,7 +15,7 @@
 import type { API, HAP, PlatformAccessory, Service } from 'homebridge'
 
 import type { AccessoryHost, AccessoryInit } from '../../src/devices/host'
-import type { PluginLogger, Severity, SignalRef } from '../../src/types'
+import type { DeliveryFaultReport, PluginLogger, Severity, SignalRef } from '../../src/types'
 
 /** A recorded characteristic. */
 export class FakeCharacteristic {
@@ -205,6 +205,7 @@ export interface FakeHost extends AccessoryHost {
   signals: Map<string, boolean>
   maintenance: boolean
   fault: boolean
+  faultReport: DeliveryFaultReport
   writes: string[]
 }
 
@@ -219,6 +220,7 @@ export function fakeHost(): FakeHost {
     signals: new Map(),
     maintenance: false,
     fault: false,
+    faultReport: 'outage',
     writes: [],
     isLevelOn: (alertId: string, severity: Severity) => host.levels.get(`${alertId}:${severity}`) === true,
     setLevel: (alertId: string, severity: Severity, on: boolean) => {
@@ -236,6 +238,7 @@ export function fakeHost(): FakeHost {
       host.maintenance = on
     },
     isDeliveryFault: () => host.fault,
+    deliveryFaultReport: () => (host.fault ? host.faultReport : 'none'),
   }
   return host
 }
