@@ -171,7 +171,12 @@ export const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/
  */
 export const MAX_SIGNAL_SWITCHES = 20
 
-/** `severity` value in `signals` that keeps the plugin's own severity. */
+/**
+ * `severity` value in `signals` that keeps the plugin's own severity.
+ *
+ * The settings screen does not show this word. It labels the choice with the
+ * severity the plugin wrote, and a different choice replaces it.
+ */
 export const SEVERITY_FROM_PLUGIN = 'plugin'
 
 // --- Settings screen ---------------------------------------------------------

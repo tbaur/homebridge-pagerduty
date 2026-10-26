@@ -63,7 +63,8 @@ export declare class AlertController {
     private reader;
     private storeUnreadableSince;
     private catalog;
-    private catalogNames;
+    /** Plugin, signal, and severity. A new summary does not refresh the settings screen. */
+    private catalogStamp;
     private lastStoreWarnAt;
     private pendingRowSweep;
     private started;
@@ -122,7 +123,7 @@ export declare class AlertController {
      * untrusted.
      */
     signalCatalog(): readonly CatalogEntry[] | undefined;
-    /** Called when a plugin or signal appears in the store or leaves it. */
+    /** Called when a plugin or signal appears or leaves, or a signal's severity changes. */
     onCatalogChange(listener: () => void): void;
     private pollSignals;
     private updateCatalog;

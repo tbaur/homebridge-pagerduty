@@ -57,7 +57,8 @@ class AlertController {
     reader;
     storeUnreadableSince = null;
     catalog;
-    catalogNames = '';
+    /** Plugin, signal, and severity. A new summary does not refresh the settings screen. */
+    catalogStamp = '';
     lastStoreWarnAt = 0;
     pendingRowSweep = false;
     started = false;
@@ -412,7 +413,7 @@ class AlertController {
     signalCatalog() {
         return this.catalog;
     }
-    /** Called when a plugin or signal appears in the store or leaves it. */
+    /** Called when a plugin or signal appears or leaves, or a signal's severity changes. */
     onCatalogChange(listener) {
         this.catalogListeners.push(listener);
     }
@@ -441,11 +442,11 @@ class AlertController {
     }
     updateCatalog(catalog) {
         this.catalog = catalog;
-        const names = catalog.map((entry) => (0, schema_1.signalRefKey)(entry)).join('\n');
-        if (names === this.catalogNames) {
+        const stamp = catalog.map((entry) => `${(0, schema_1.signalRefKey)(entry)} ${entry.severity}`).join('\n');
+        if (stamp === this.catalogStamp) {
             return;
         }
-        this.catalogNames = names;
+        this.catalogStamp = stamp;
         for (const listener of this.catalogListeners) {
             try {
                 listener();

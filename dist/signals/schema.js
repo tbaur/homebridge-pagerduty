@@ -134,10 +134,10 @@ function validateRow(raw) {
  * plugin's own name are dropped, because it can never be allowed.
  */
 function validateCatalogEntry(raw) {
-    const { plugin, signal } = raw;
+    const { plugin, signal, severity } = raw;
     const summary = cleanSummaryText(raw.summary);
-    return isAllowableSource(plugin) && isValidSignalName(signal) && summary !== undefined
-        ? { plugin, signal, summary }
+    return isAllowableSource(plugin) && isValidSignalName(signal) && (0, types_1.isSeverity)(severity) && summary !== undefined
+        ? { plugin, signal, severity, summary }
         : undefined;
 }
 /**

@@ -158,7 +158,7 @@ export class SignalReader {
           + `WHERE plugin IN (${placeholders}) ORDER BY updated_at DESC LIMIT ${MAX_SIGNAL_ROWS + 1}`,
         ),
         catalog: db.prepare(
-          'SELECT plugin, signal, summary FROM signals WHERE plugin <> ? '
+          'SELECT plugin, signal, severity, summary FROM signals WHERE plugin <> ? '
           + `ORDER BY plugin, signal LIMIT ${MAX_CATALOG_SCAN_ROWS}`,
         ),
         dataVersion: db.prepare('PRAGMA data_version'),

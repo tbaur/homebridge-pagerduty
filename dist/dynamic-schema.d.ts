@@ -15,7 +15,7 @@
  * keys and condition code. A plugin's text is only ever a field's default
  * value, never a title or description, which Config UI X renders as markup.
  */
-import type { CatalogEntry, PluginLogger, ResolvedSignalPlugin } from './types';
+import { type CatalogEntry, type PluginLogger, type ResolvedSignalPlugin } from './types';
 /** Title of the layout fieldset this file fills. A test asserts the static schema has it. */
 export declare const PLUGIN_SIGNALS_TITLE = "Plugin Signals";
 type JsonObject = Record<string, unknown>;

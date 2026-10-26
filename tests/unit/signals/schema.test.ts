@@ -101,12 +101,14 @@ describe('defaultSignalSwitchName', () => {
 })
 
 describe('validateCatalogEntry', () => {
-  it('keeps a valid entry and drops this plugin, bad names and bad text', () => {
-    expect(validateCatalogEntry({ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' }))
-      .toEqual({ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' })
-    expect(validateCatalogEntry({ plugin: 'homebridge-pagerduty', signal: 'door', summary: 'x' })).toBeUndefined()
-    expect(validateCatalogEntry({ plugin: 'homebridge-example', signal: 'a/b', summary: 'x' })).toBeUndefined()
-    expect(validateCatalogEntry({ plugin: 'homebridge-example', signal: 'door', summary: '' })).toBeUndefined()
+  it('keeps a valid entry and drops this plugin, bad names, bad text and a bad severity', () => {
+    expect(validateCatalogEntry({ plugin: 'homebridge-example', signal: 'door', severity: 'warning', summary: 'Door open' }))
+      .toEqual({ plugin: 'homebridge-example', signal: 'door', severity: 'warning', summary: 'Door open' })
+    expect(validateCatalogEntry({ plugin: 'homebridge-pagerduty', signal: 'door', severity: 'warning', summary: 'x' })).toBeUndefined()
+    expect(validateCatalogEntry({ plugin: 'homebridge-example', signal: 'a/b', severity: 'warning', summary: 'x' })).toBeUndefined()
+    expect(validateCatalogEntry({ plugin: 'homebridge-example', signal: 'door', severity: 'warning', summary: '' })).toBeUndefined()
+    expect(validateCatalogEntry({ plugin: 'homebridge-example', signal: 'door', severity: 'urgent', summary: 'Door open' })).toBeUndefined()
+    expect(validateCatalogEntry({ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' })).toBeUndefined()
   })
 })
 

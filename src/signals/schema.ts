@@ -137,10 +137,10 @@ export function validateRow(raw: Record<string, unknown>): SignalRow | undefined
  * plugin's own name are dropped, because it can never be allowed.
  */
 export function validateCatalogEntry(raw: Record<string, unknown>): CatalogEntry | undefined {
-  const { plugin, signal } = raw
+  const { plugin, signal, severity } = raw
   const summary = cleanSummaryText(raw.summary)
-  return isAllowableSource(plugin) && isValidSignalName(signal) && summary !== undefined
-    ? { plugin, signal, summary }
+  return isAllowableSource(plugin) && isValidSignalName(signal) && isSeverity(severity) && summary !== undefined
+    ? { plugin, signal, severity, summary }
     : undefined
 }
 

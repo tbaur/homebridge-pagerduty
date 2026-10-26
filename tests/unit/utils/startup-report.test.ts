@@ -121,7 +121,7 @@ describe('formatStartupReport', () => {
   }
 
   function written(plugin: string, names: string[]): CatalogEntry[] {
-    return names.map((name) => ({ plugin, signal: name, summary: 'Text' }))
+    return names.map((name) => ({ plugin, signal: name, summary: 'Text', severity: 'warning' as const }))
   }
 
   it('lists what each plugin writes, which plugins may not page, and which signals are muted', () => {

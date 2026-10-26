@@ -109,7 +109,7 @@ class SignalReader {
                 ino: stats.ino,
                 rows: this.options.allowed.length === 0 ? undefined : db.prepare('SELECT plugin, signal, active, severity, summary, updated_at FROM signals '
                     + `WHERE plugin IN (${placeholders}) ORDER BY updated_at DESC LIMIT ${settings_1.MAX_SIGNAL_ROWS + 1}`),
-                catalog: db.prepare('SELECT plugin, signal, summary FROM signals WHERE plugin <> ? '
+                catalog: db.prepare('SELECT plugin, signal, severity, summary FROM signals WHERE plugin <> ? '
                     + `ORDER BY plugin, signal LIMIT ${settings_1.MAX_CATALOG_SCAN_ROWS}`),
                 dataVersion: db.prepare('PRAGMA data_version'),
                 lastDataVersion: undefined,
