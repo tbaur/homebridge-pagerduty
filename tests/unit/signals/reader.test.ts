@@ -135,8 +135,8 @@ describe('SignalReader', () => {
 
     expect(result.rows.map((row) => row.plugin)).toEqual(['homebridge-example'])
     expect(result.catalog).toEqual([
-      { plugin: 'homebridge-example', signal: 'door', summary: 'Door open' },
-      { plugin: 'homebridge-other', signal: 'x', summary: 'Other text' },
+      { plugin: 'homebridge-example', signal: 'door', severity: 'warning', summary: 'Door open' },
+      { plugin: 'homebridge-other', signal: 'x', severity: 'warning', summary: 'Other text' },
     ])
   })
 
@@ -148,7 +148,7 @@ describe('SignalReader', () => {
 
     expect(result.rows).toEqual([])
     expect(result.complete).toBe(true)
-    expect(result.catalog).toEqual([{ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' }])
+    expect(result.catalog).toEqual([{ plugin: 'homebridge-example', signal: 'door', severity: 'warning', summary: 'Door open' }])
   })
 
   it('reopens when the file is replaced, instead of reading the deleted one', () => {
@@ -184,7 +184,7 @@ describe('SignalReader', () => {
       { signal: 'door', active: 1 },
     ])
 
-    expect(rowsOf(subject.poll()).catalog).toEqual([{ plugin: 'homebridge-example', signal: 'door', summary: 'Door open' }])
+    expect(rowsOf(subject.poll()).catalog).toEqual([{ plugin: 'homebridge-example', signal: 'door', severity: 'warning', summary: 'Door open' }])
   })
 
   it('replaces control characters in a row\'s text with a space, so the row still pages', () => {
@@ -222,6 +222,7 @@ describe('SignalReader', () => {
 
     expect(result.rows.map((row) => row.signal)).toEqual(['ok'])
     expect(result.invalidRows).toBe(1)
+    expect(result.catalog).toEqual([{ plugin: 'homebridge-example', signal: 'ok', severity: 'info', summary: 'fine' }])
   })
 
   it('leaves PRAGMA user_version alone, because the directory names the interface', () => {

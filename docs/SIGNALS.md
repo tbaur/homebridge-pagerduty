@@ -28,7 +28,7 @@ signal store: homebridge-example writes signals; allow it under Plugin Signals t
 |---|---|
 | **Page for this signal** | On by default. Turn it off to stop this one signal from paging. |
 | **PagerDuty Message** | The text sent to PagerDuty when the plugin raises this signal. It starts as the plugin's own text, and you can change it. Leave it blank to use whatever text the plugin writes. |
-| **Severity** | **Set by the plugin** by default. Pick a severity to always page at that level instead. |
+| **Severity** | The severity the plugin set. Choose a different severity to page at that level instead. |
 | **Page During Maintenance** | Page even while the maintenance switch is on. Shown only when the maintenance switch is turned on. |
 | **Create HomeKit Switch** | Adds a switch to HomeKit for this signal. See [Signal switches](#signal-switches). |
 | **Switch Name** | The name that HomeKit shows. Shown only when Create HomeKit Switch is checked. You can rename it at any time, and it keeps its room and automations. |
@@ -46,6 +46,8 @@ In `config.json`, these settings sit under `signals`, keyed by package name. A s
 }
 ```
 
+`severity` stays `plugin` in that file until you choose a severity. The screen shows the severity the other plugin wrote. Paging uses that severity, including after that plugin changes it. A severity you choose stays at that level.
+
 A signal that an allowed plugin starts writing after you saved the settings pages with the defaults, as if you had left every setting alone.
 
 ### What happens once a plugin is allowed
@@ -59,7 +61,7 @@ A signal that an allowed plugin starts writing after you saved the settings page
 A signal switch shows the signal in the Home app, and lets you test it.
 
 - The switch is on while the signal is active, and turns off when it clears.
-- Turning the switch on by hand pages with the signal's settings. Turning it off resolves the alert. If the plugin has not written the signal yet and its severity is left to the plugin, a page by hand is sent as `critical`.
+- Turning the switch on by hand pages with the signal's settings. Turning it off resolves the alert. If the plugin has not written the signal yet, the severity shows as Critical, and a page by hand is sent as `critical`.
 - Whichever changed last wins. A person can flip the switch, and it stays that way until the plugin next changes the signal.
 
 ### What allowing a plugin protects against

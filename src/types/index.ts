@@ -222,6 +222,8 @@ export interface SignalRow extends SignalRef {
 export interface CatalogEntry extends SignalRef {
   /** Untrusted text from the other plugin. Only ever used as a field's default value. */
   summary: string
+  /** The severity the plugin wrote. Already checked against {@link SEVERITIES}. */
+  severity: Severity
 }
 
 // --- Diagnostics ---------------------------------------------------------------

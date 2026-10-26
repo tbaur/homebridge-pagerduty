@@ -23,6 +23,7 @@ const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 const schema_1 = require("./signals/schema");
 const settings_1 = require("./settings");
+const types_1 = require("./types");
 const atomic_file_1 = require("./utils/atomic-file");
 const errors_1 = require("./utils/errors");
 /** Title of the layout fieldset this file fills. A test asserts the static schema has it. */
@@ -30,6 +31,16 @@ exports.PLUGIN_SIGNALS_TITLE = 'Plugin Signals';
 /** Bootstrap classes that Config UI X loads. A box per plugin and a rule per signal show what belongs to what. */
 const PLUGIN_FIELDSET_CLASS = 'border rounded px-3 pt-3 pb-0 mb-3';
 const SIGNAL_FIELDSET_CLASS = 'border-start border-2 ps-3 mb-2';
+/** Highest first, matching the severity menu on a HomeKit alert. */
+const SEVERITY_CHOICES = [...types_1.SEVERITIES].reverse().map((severity) => ({
+    value: severity,
+    name: `${severity[0]?.toUpperCase() ?? ''}${severity.slice(1)}`,
+}));
+/**
+ * What a page uses when the plugin has not written a severity yet.
+ * Same fallback as a signal raised from its switch before any row exists.
+ */
+const SEVERITY_BEFORE_PLUGIN_WRITES = 'critical';
 /** Build the settings screen. Pure. */
 function buildDynamicSchema(input) {
     const schema = structuredClone(input.baseSchema);
@@ -54,16 +65,12 @@ function buildDynamicSchema(input) {
 function collectPlugins(catalog, configured) {
     const byPlugin = new Map();
     for (const entry of configured) {
-        byPlugin.set(entry.plugin, new Map(entry.signals.map((signal) => [signal.signal, undefined])));
+        byPlugin.set(entry.plugin, new Map(entry.signals.map((signal) => [signal.signal, { override: signal.severity }])));
     }
     for (const entry of [...catalog].sort(compareEntries)) {
-        let signals = byPlugin.get(entry.plugin);
-        if (signals === undefined && byPlugin.size < settings_1.MAX_SIGNAL_PLUGINS) {
-            signals = new Map();
-            byPlugin.set(entry.plugin, signals);
-        }
+        const signals = signalsFor(byPlugin, entry.plugin);
         if (signals !== undefined && (signals.has(entry.signal) || signals.size < settings_1.MAX_SIGNALS_PER_PLUGIN)) {
-            signals.set(entry.signal, cleanDefault(entry.summary));
+            signals.set(entry.signal, withCatalog(signals.get(entry.signal), entry));
         }
     }
     return [...byPlugin]
@@ -72,8 +79,32 @@ function collectPlugins(catalog, configured) {
         plugin,
         signals: [...signals]
             .sort(([a], [b]) => a.localeCompare(b))
-            .map(([signal, summary]) => (summary === undefined ? { signal } : { signal, summary })),
+            .map(([signal, draft]) => signalForm(signal, draft)),
     }));
+}
+function signalsFor(byPlugin, plugin) {
+    let signals = byPlugin.get(plugin);
+    if (signals === undefined && byPlugin.size < settings_1.MAX_SIGNAL_PLUGINS) {
+        signals = new Map();
+        byPlugin.set(plugin, signals);
+    }
+    return signals;
+}
+function withCatalog(draft, entry) {
+    const summary = cleanDefault(entry.summary);
+    return {
+        ...(draft?.override === undefined ? {} : { override: draft.override }),
+        pluginSeverity: entry.severity,
+        ...(summary === undefined ? {} : { summary }),
+    };
+}
+function signalForm(signal, draft) {
+    return {
+        signal,
+        ...(draft.summary === undefined ? {} : { summary: draft.summary }),
+        ...(draft.pluginSeverity === undefined ? {} : { pluginSeverity: draft.pluginSeverity }),
+        ...(draft.override === undefined ? {} : { override: draft.override }),
+    };
 }
 function compareEntries(a, b) {
     return a.plugin.localeCompare(b.plugin) || a.signal.localeCompare(b.signal);
@@ -101,6 +132,7 @@ function pluginSchema(entry) {
     };
 }
 function signalSchema(signal) {
+    const severity = severityControl(signal);
     return {
         type: 'object',
         required: ['severity'],
@@ -116,8 +148,8 @@ function signalSchema(signal) {
             severity: {
                 title: 'Severity',
                 type: 'string',
-                enum: [settings_1.SEVERITY_FROM_PLUGIN, 'critical', 'error', 'warning', 'info'],
-                default: settings_1.SEVERITY_FROM_PLUGIN,
+                enum: severity.enum,
+                default: severity.default,
             },
             bypassMaintenance: {
                 title: 'Page During Maintenance',
@@ -151,17 +183,35 @@ function pluginLayout(entry) {
         expanded: false,
         items: [
             `signals[${key}].allow`,
-            ...entry.signals.map((signal) => signalLayout(key, signal.signal)),
+            ...entry.signals.map((signal) => signalLayout(key, signal)),
         ],
     };
 }
+/**
+ * Until the user picks a severity, the choice that matches the plugin's
+ * severity is stored as `plugin`. The screen shows that severity, and saving
+ * without a change keeps following the plugin. A different choice is stored
+ * as that severity.
+ */
+function severityControl(signal) {
+    if (signal.override !== undefined) {
+        return {
+            enum: SEVERITY_CHOICES.map((choice) => choice.value),
+            default: signal.override,
+            titleMap: SEVERITY_CHOICES.map((choice) => ({ ...choice })),
+        };
+    }
+    const shown = signal.pluginSeverity ?? SEVERITY_BEFORE_PLUGIN_WRITES;
+    const titleMap = SEVERITY_CHOICES.map((choice) => (choice.value === shown ? { value: settings_1.SEVERITY_FROM_PLUGIN, name: choice.name } : choice));
+    return { enum: titleMap.map((choice) => choice.value), default: settings_1.SEVERITY_FROM_PLUGIN, titleMap };
+}
 function signalLayout(pluginKey, signal) {
-    const path = `signals[${pluginKey}].signals[${JSON.stringify(signal)}]`;
+    const path = `signals[${pluginKey}].signals[${JSON.stringify(signal.signal)}]`;
     const model = `model.signals?.[${pluginKey}]`;
-    const settings = `${model}?.signals?.[${JSON.stringify(signal)}]`;
+    const settings = `${model}?.signals?.[${JSON.stringify(signal.signal)}]`;
     return {
         type: 'fieldset',
-        title: signal,
+        title: signal.signal,
         htmlClass: SIGNAL_FIELDSET_CLASS,
         expandable: true,
         expanded: false,
@@ -172,13 +222,7 @@ function signalLayout(pluginKey, signal) {
             {
                 key: `${path}.severity`,
                 type: 'select',
-                titleMap: [
-                    { value: settings_1.SEVERITY_FROM_PLUGIN, name: 'Set by the plugin' },
-                    { value: 'critical', name: 'Critical' },
-                    { value: 'error', name: 'Error' },
-                    { value: 'warning', name: 'Warning' },
-                    { value: 'info', name: 'Info' },
-                ],
+                titleMap: severityControl(signal).titleMap,
             },
             {
                 key: `${path}.bypassMaintenance`,

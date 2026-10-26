@@ -174,7 +174,7 @@ Each signal takes:
 | --- | --- | --- |
 | `enabled` | `true` | Page for this signal |
 | `summary` | the plugin's text | PagerDuty Message, up to 1024 characters. Blank uses the plugin's text |
-| `severity` | `plugin` | `plugin` keeps the plugin's severity. `info`, `warning`, `error` or `critical` overrides it |
+| `severity` | `plugin` | The settings screen shows the severity the plugin wrote. `plugin` keeps that severity, including when the plugin changes it. `info`, `warning`, `error` or `critical` replaces it |
 | `bypassMaintenance` | `false` | Page even while maintenance is on |
 | `switch` | `false` | Add a HomeKit switch for this signal. Up to 20 signal switches |
 | `switchName` | the signal name in title case | The switch's name in HomeKit, up to 64 characters |

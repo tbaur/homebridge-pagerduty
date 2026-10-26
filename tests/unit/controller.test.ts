@@ -18,7 +18,7 @@ import { AlertController, type ControllerOptions, type SignalReaderLike } from '
 import type { PollResult } from '../../src/signals/reader'
 import type { PersistedState } from '../../src/state/model'
 import { StateStore } from '../../src/state/store'
-import type { CatalogEntry, ResolvedConfig, SignalRow } from '../../src/types'
+import type { CatalogEntry, ResolvedConfig, Severity, SignalRow } from '../../src/types'
 import { alert, allowedPlugin, leveledAlert, resolvedConfig, signal } from '../helpers/config'
 import { fakeLogger, type RecordingLogger } from '../helpers/hap'
 import { OTHER_ROUTING_KEY } from '../helpers/secrets'
@@ -506,12 +506,12 @@ describe('the signal store', () => {
     return { plugin: 'homebridge-example', signal: 'door', active: true, severity: 'warning', summary: 'Door open', updatedAt: 1, ...overrides }
   }
 
-  function entry(plugin: string, name: string, summary = 'Door open'): CatalogEntry {
-    return { plugin, signal: name, summary }
+  function entry(plugin: string, name: string, summary = 'Door open', severity: Severity = 'warning'): CatalogEntry {
+    return { plugin, signal: name, summary, severity }
   }
 
   function rows(list: SignalRow[], extra: Partial<Extract<PollResult, { kind: 'rows' }>> = {}): PollResult {
-    const catalog = list.map((item) => entry(item.plugin, item.signal, item.summary))
+    const catalog = list.map((item) => entry(item.plugin, item.signal, item.summary, item.severity))
     return { kind: 'rows', rows: list, complete: true, catalog, invalidRows: 0, ...extra }
   }
 
@@ -657,11 +657,12 @@ describe('the signal store', () => {
     expect(h.log.lines('info')).not.toContain('signal store readable again')
   })
 
-  it('lists every plugin\'s signals, and reports a change only when a name comes or goes', () => {
+  it('lists every plugin\'s signals, and reports a change when a name or its severity changes', () => {
     const script = [
       rows([], { catalog: [entry('homebridge-other', 'x')] }),
       rows([], { catalog: [entry('homebridge-other', 'x', 'New text')] }),
-      rows([], { catalog: [entry('homebridge-other', 'x'), entry('homebridge-other', 'y')] }),
+      rows([], { catalog: [entry('homebridge-other', 'x', 'New text', 'error')] }),
+      rows([], { catalog: [entry('homebridge-other', 'x', 'New text', 'error'), entry('homebridge-other', 'y')] }),
     ]
     const h = start(resolvedConfig({ alerts: [] }), { createReader: scriptedReader(script) })
     let changes = 0
@@ -670,9 +671,9 @@ describe('the signal store', () => {
     })
     expect(h.controller.signalCatalog()).toEqual([entry('homebridge-other', 'x')])
 
-    jest.advanceTimersByTime(4_000)
+    jest.advanceTimersByTime(6_000)
 
-    expect(changes).toBe(1)
+    expect(changes).toBe(2)
     expect(h.controller.signalCatalog()).toHaveLength(2)
   })
 

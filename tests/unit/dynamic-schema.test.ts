@@ -24,6 +24,7 @@ interface Node {
   default?: unknown
   description?: string
   required?: string[]
+  enum?: string[]
   properties?: Record<string, Node>
 }
 
@@ -31,6 +32,7 @@ interface LayoutNode {
   key?: string
   title?: string
   htmlClass?: string
+  titleMap?: { value: string; name: string }[]
   items?: (string | LayoutNode)[]
   condition?: { functionBody: string }
 }
@@ -47,8 +49,14 @@ function build(catalog: CatalogEntry[], signalPlugins: ResolvedSignalPlugin[] = 
   return buildDynamicSchema({ baseSchema: BASE, catalog, signalPlugins }) as unknown as Screen
 }
 
-function entry(plugin: string, name: string, summary = 'Plugin text'): CatalogEntry {
-  return { plugin, signal: name, summary }
+function entry(plugin: string, name: string, summary = 'Plugin text', severity: CatalogEntry['severity'] = 'warning'): CatalogEntry {
+  return { plugin, signal: name, summary, severity }
+}
+
+function severitySelect(screen: Screen, plugin = 'homebridge-example', name = 'door'): LayoutNode {
+  const pluginNode = fieldset(screen).items!.find((item) => typeof item !== 'string' && item.title === plugin) as LayoutNode
+  const signalNode = pluginNode.items!.find((item) => typeof item !== 'string' && item.title === name) as LayoutNode
+  return signalNode.items!.find((item) => typeof item !== 'string' && item.key!.endsWith('.severity')) as LayoutNode
 }
 
 function pluginSignals(screen: Screen): Record<string, Node> {
@@ -112,12 +120,51 @@ describe('buildDynamicSchema', () => {
     expect(signals.clean!.properties!.switchName!.default).toBe('Clean')
   })
 
-  it('marks severity required, so the list offers no empty choice', () => {
-    const screen = build([entry('homebridge-example', 'door')])
+  it('shows the severity the plugin set, and a different choice replaces it', () => {
+    const screen = build([entry('homebridge-example', 'door', 'Plugin text', 'warning')])
     const door = pluginSignals(screen)['homebridge-example']!.properties!.signals!.properties!.door!
+    const select = severitySelect(screen)
 
     expect(door.required).toEqual(['severity'])
     expect(door.properties!.severity!.default).toBe('plugin')
+    expect(door.properties!.severity!.enum).toEqual(select.titleMap!.map((choice) => choice.value))
+    expect(select.titleMap).toEqual([
+      { value: 'critical', name: 'Critical' },
+      { value: 'error', name: 'Error' },
+      { value: 'plugin', name: 'Warning' },
+      { value: 'info', name: 'Info' },
+    ])
+    expect(JSON.stringify(screen)).not.toContain('Set by the plugin')
+  })
+
+  it('keeps a severity the user chose as that severity', () => {
+    const screen = build(
+      [entry('homebridge-example', 'door', 'Plugin text', 'warning')],
+      [allowedPlugin('homebridge-example', [signal({ signal: 'door', severity: 'error' })])],
+    )
+    const door = pluginSignals(screen)['homebridge-example']!.properties!.signals!.properties!.door!
+
+    expect(door.properties!.severity!.default).toBe('error')
+    expect(door.properties!.severity!.enum).toEqual(['critical', 'error', 'warning', 'info'])
+    expect(severitySelect(screen).titleMap).toEqual([
+      { value: 'critical', name: 'Critical' },
+      { value: 'error', name: 'Error' },
+      { value: 'warning', name: 'Warning' },
+      { value: 'info', name: 'Info' },
+    ])
+  })
+
+  it('shows Critical when the plugin has not written a severity yet', () => {
+    const screen = build([], [allowedPlugin('homebridge-example', [signal({ signal: 'door' })])])
+    const door = pluginSignals(screen)['homebridge-example']!.properties!.signals!.properties!.door!
+
+    expect(door.properties!.severity!.default).toBe('plugin')
+    expect(severitySelect(screen).titleMap).toEqual([
+      { value: 'plugin', name: 'Critical' },
+      { value: 'error', name: 'Error' },
+      { value: 'warning', name: 'Warning' },
+      { value: 'info', name: 'Info' },
+    ])
   })
 
   it('never puts another plugin\'s text anywhere but a default value', () => {
