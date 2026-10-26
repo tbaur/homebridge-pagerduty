@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/tbaur/homebridge-pagerduty/compare/v2.1.0...v2.1.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* show the severity a plugin signal already has ([#25](https://github.com/tbaur/homebridge-pagerduty/issues/25)) ([36f139e](https://github.com/tbaur/homebridge-pagerduty/commit/36f139e6b5d630a64e20deb4d34f4b7b2bf09505))
+
 ## [2.1.0](https://github.com/tbaur/homebridge-pagerduty/compare/v2.0.2...v2.1.0) (2026-10-25)
 
 
