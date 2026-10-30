@@ -32,6 +32,7 @@ These plugins write to the [signal store](docs/SIGNALS.md). Each one pages only 
 - [homebridge-mynest](https://github.com/tbaur/homebridge-mynest)
 - [homebridge-myresideo](https://github.com/tbaur/homebridge-myresideo)
 - [homebridge-concert](https://github.com/tbaur/homebridge-concert)
+- [homebridge-myairthings](https://github.com/tbaur/homebridge-myairthings)
 
 If you have integrated another plugin, [let me know](https://github.com/tbaur/homebridge-pagerduty/issues) and I will add it to this list.
 
