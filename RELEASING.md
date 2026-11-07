@@ -30,9 +30,15 @@ Do not edit `CHANGELOG.md` by hand. release-please writes it on the Release PR.
 
 The Release PR is authored by `github-actions[bot]`, because `release.yml` passes `github.token` to release-please. GitHub creates its Tests and OSV-Scanner runs but holds them until a user with write access approves.
 
-**Open the Release PR's Checks tab and click "Approve and run" before merging.**
+**Approve the held runs before merging.** Either click "Approve and run" on the Release PR's Checks tab, or approve them from the CLI:
 
-- There is no CLI for this.
+```bash
+sha=$(gh pr view <PR> --json headRefOid --jq .headRefOid)
+gh api "repos/tbaur/homebridge-pagerduty/actions/runs?head_sha=$sha" --jq '.workflow_runs[] | select(.conclusion=="action_required" or .status=="action_required") | .id'
+gh api -X POST repos/tbaur/homebridge-pagerduty/actions/runs/<RUN_ID>/approve
+```
+
+- Approve each run id that the list returns. A Release PR usually has two.
 - The approval does not stick. It is needed on every release, and again whenever release-please updates an open Release PR.
 - **Merging without approving turns the runs red.** They finish as `failure` with zero jobs and no logs. That means nobody approved them, not that anything broke.
 
